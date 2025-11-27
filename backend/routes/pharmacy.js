@@ -4,8 +4,63 @@ const db = require('../database');
 const { authenticateToken, authorizeRole } = require('../middleware/authMiddleware');
 
 // Middleware
-const requirePharmacist = [authenticateToken, authorizeRole('pharmacist')];
+const requirePharmacist = [authenticateToken, authorizeRole(['pharmacist', 'admin'])];
 const requirePharmacistOrOwner = [authenticateToken, authorizeRole(['pharmacist', 'owner'])];
+
+// --- DASHBOARD STATS ---
+
+// GET /stats - Dashboard Statistics
+router.get('/stats', requirePharmacist, async (req, res) => {
+    try {
+        // 1. Pending Prescriptions (Waiting for verification)
+        const pendingQuery = "SELECT COUNT(*) as count FROM prescriptions WHERE status = 'pending'";
+
+        // 2. Completed Today (Verified today)
+        const completedQuery = "SELECT COUNT(*) as count FROM prescriptions WHERE status = 'verified' AND DATE(verified_at) = CURDATE()";
+
+        // 3. Total Medicines
+        const totalMedicinesQuery = "SELECT COUNT(*) as count FROM medicines";
+
+        // 4. Low Stock Items
+        // Count ALL items below 20 (User request: "di bawah 20")
+        const lowStockCountQuery = "SELECT COUNT(*) as count FROM medicines WHERE stock < 20";
+
+        // Get ALL items below 20 for display (User request: "ada 10 nama obat yah harus di tulis")
+        const lowStockListQuery = "SELECT name, stock, unit, minimum_stock FROM medicines WHERE stock < 20 ORDER BY stock ASC";
+
+        db.get(pendingQuery, [], (err, pendingRow) => {
+            if (err) return res.status(500).json({ error: 'Database error' });
+
+            db.get(completedQuery, [], (err, completedRow) => {
+                if (err) return res.status(500).json({ error: 'Database error' });
+
+                db.get(totalMedicinesQuery, [], (err, totalRow) => {
+                    if (err) return res.status(500).json({ error: 'Database error' });
+
+                    db.get(lowStockCountQuery, [], (err, lowStockCountRow) => {
+                        if (err) return res.status(500).json({ error: 'Database error' });
+
+                        db.all(lowStockListQuery, [], (err, lowStockRows) => {
+                            if (err) return res.status(500).json({ error: 'Database error' });
+
+                            res.json({
+                                pendingPrescriptions: pendingRow ? pendingRow.count : 0,
+                                completedToday: completedRow ? completedRow.count : 0,
+                                totalMedicines: totalRow ? totalRow.count : 0,
+                                lowStockCount: lowStockCountRow ? lowStockCountRow.count : 0,
+                                lowStockItems: lowStockRows || []
+                            });
+                        });
+                    });
+                });
+            });
+        });
+
+    } catch (error) {
+        console.error('Error fetching stats:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
 
 // --- MEDICINES (INVENTORY) ---
 
@@ -20,36 +75,56 @@ router.get('/medicines', authenticateToken, (req, res) => {
 
 // POST /medicines - Add new medicine (Pharmacist only)
 router.post('/medicines', requirePharmacist, (req, res) => {
-    const { name, category, stock, unit, price, expiry_date } = req.body;
+    const { name, category, stock, unit, price, minimum_stock, description, expiry_date } = req.body;
 
     if (!name || !price) return res.status(400).json({ error: 'Name and Price are required' });
 
     const query = `
-        INSERT INTO medicines (name, category, stock, unit, price, expiry_date) 
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO medicines (name, category, stock, unit, price, minimum_stock, description, expiry_date) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
-    db.run(query, [name, category, stock || 0, unit, price, expiry_date], function (err) {
-        if (err) return res.status(500).json({ error: 'Database error' });
+    db.run(query, [name, category, stock || 0, unit, price, minimum_stock || 10, description || null, expiry_date || null], function (err) {
+        if (err) {
+            console.error('Error adding medicine:', err);
+            return res.status(500).json({ error: 'Database error', details: err.message });
+        }
         res.status(201).json({ message: 'Medicine added successfully', id: this.lastID });
     });
 });
 
 // PUT /medicines/:id - Update medicine (Pharmacist only)
 router.put('/medicines/:id', requirePharmacist, (req, res) => {
-    const { name, category, stock, unit, price, expiry_date } = req.body;
+    const { name, category, stock, unit, price, minimum_stock, description, expiry_date } = req.body;
     const id = req.params.id;
 
     const query = `
         UPDATE medicines 
-        SET name=?, category=?, stock=?, unit=?, price=?, expiry_date=?
+        SET name=?, category=?, stock=?, unit=?, price=?, minimum_stock=?, description=?, expiry_date=?
         WHERE id=?
     `;
 
-    db.run(query, [name, category, stock, unit, price, expiry_date, id], function (err) {
-        if (err) return res.status(500).json({ error: 'Database error' });
+    db.run(query, [name, category, stock, unit, price, minimum_stock || 10, description || null, expiry_date || null, id], function (err) {
+        if (err) {
+            console.error('Error updating medicine:', err);
+            return res.status(500).json({ error: 'Database error', details: err.message });
+        }
         if (this.changes === 0) return res.status(404).json({ error: 'Medicine not found' });
         res.json({ message: 'Medicine updated successfully' });
+    });
+});
+
+// DELETE /medicines/:id - Delete medicine (Pharmacist only)
+router.delete('/medicines/:id', requirePharmacist, (req, res) => {
+    const id = req.params.id;
+
+    db.run('DELETE FROM medicines WHERE id = ?', [id], function (err) {
+        if (err) {
+            console.error('Error deleting medicine:', err);
+            return res.status(500).json({ error: 'Database error' });
+        }
+        if (this.changes === 0) return res.status(404).json({ error: 'Medicine not found' });
+        res.json({ message: 'Medicine deleted successfully' });
     });
 });
 
@@ -193,11 +268,11 @@ router.put('/prescriptions/:id/pricing', requirePharmacist, (req, res) => {
     const query = `
         UPDATE prescriptions 
         SET total_price = ?, 
-            processed_by = ?, 
-            processed_at = NOW(),
-            status = 'verified'
-        WHERE id = ?
-    `;
+        processed_by = ?, 
+        processed_at = NOW(),
+        status = 'verified'
+    WHERE id = ?
+`;
 
     db.run(query, [total_price, req.user.id, id], function (err) {
         if (err) {

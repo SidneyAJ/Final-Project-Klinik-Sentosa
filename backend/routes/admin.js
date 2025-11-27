@@ -3,13 +3,14 @@ const router = express.Router();
 const db = require('../database');
 const bcrypt = require('bcrypt');
 const { authenticateToken } = require('../middleware/auth');
+const logAudit = require('../utils/auditLogger');
 
-// Middleware to check admin role
+// Middleware to check admin or owner role
 function requireAdmin(req, res, next) {
-    if (req.user && req.user.role === 'admin') {
+    if (req.user && (req.user.role === 'admin' || req.user.role === 'owner')) {
         next();
     } else {
-        res.status(403).json({ error: 'Access denied. Admin only.' });
+        res.status(403).json({ error: 'Access denied. Admin or Owner only.' });
     }
 }
 
@@ -25,7 +26,10 @@ router.get('/dashboard-stats', authenticateToken, requireAdmin, async (req, res)
         });
 
         // Get today's appointments count
-        const today = new Date().toISOString().split('T')[0];
+        const now = new Date();
+        const today = now.getFullYear() + '-' +
+            String(now.getMonth() + 1).padStart(2, '0') + '-' +
+            String(now.getDate()).padStart(2, '0');
         const appointmentsToday = await new Promise((resolve, reject) => {
             db.get(
                 "SELECT COUNT(*) as count FROM appointments WHERE DATE(appointment_date) = ?",
@@ -61,11 +65,24 @@ router.get('/dashboard-stats', authenticateToken, requireAdmin, async (req, res)
             );
         });
 
+        // Get new patients today
+        const newPatientsToday = await new Promise((resolve, reject) => {
+            db.get(
+                "SELECT COUNT(*) as count FROM patients WHERE DATE(created_at) = ?",
+                [today],
+                (err, row) => {
+                    if (err) reject(err);
+                    else resolve(row?.count || 0);
+                }
+            );
+        });
+
         res.json({
-            totalPatients,
-            todayRevenue,
+            revenue: todayRevenue,
+            newPatients: newPatientsToday,
+            appointments: appointmentsToday,
             activeStaff,
-            appointmentsToday
+            totalPatients
         });
     } catch (error) {
         console.error('Error fetching dashboard stats:', error);
@@ -155,6 +172,9 @@ router.post('/users', authenticateToken, requireAdmin, async (req, res) => {
             });
         }
 
+        // Log audit
+        logAudit(req, 'USER_CREATED', { user_id: userId, email, role, name });
+
         res.status(201).json({ message: 'User created successfully' });
     } catch (error) {
         console.error('Error creating user:', error);
@@ -174,6 +194,10 @@ router.delete('/users/:id', authenticateToken, requireAdmin, (req, res) => {
         if (this.changes === 0) {
             return res.status(404).json({ error: 'User not found' });
         }
+
+        // Log audit
+        logAudit(req, 'USER_DELETED', { deleted_user_id: userId });
+
         res.json({ message: 'User deleted successfully' });
     });
 });
@@ -215,8 +239,27 @@ router.put('/users/:id', authenticateToken, requireAdmin, async (req, res) => {
             await db.query('UPDATE doctors SET full_name = ? WHERE user_id = ?', [name, userId]);
         } else if (role === 'nurse') {
             await db.query('UPDATE nurses SET full_name = ? WHERE user_id = ?', [name, userId]);
+        } else if (role === 'pharmacist' || role === 'apoteker') {
+            await db.query('UPDATE pharmacists SET full_name = ? WHERE user_id = ?', [name, userId]);
         } else if (role === 'patient') {
             await db.query('UPDATE patients SET full_name = ? WHERE user_id = ?', [name, userId]);
+        }
+
+        // Log audit - separate events for password change
+        if (password) {
+            logAudit(req, 'USER_PASSWORD_CHANGED', {
+                updated_user_id: userId,
+                email,
+                role,
+                name
+            });
+        } else {
+            logAudit(req, 'USER_UPDATED', {
+                updated_user_id: userId,
+                email,
+                role,
+                name
+            });
         }
 
         res.json({ message: 'User updated successfully' });
@@ -228,10 +271,14 @@ router.put('/users/:id', authenticateToken, requireAdmin, async (req, res) => {
 
 // POST /patients - Register new patient (Admin)
 router.post('/patients', authenticateToken, requireAdmin, async (req, res) => {
-    const { name, email, password, nik, phone, address, dob, gender, username } = req.body;
+    const { name, email, password, nik, phone, address, dob, gender, username, patient_type, bpjs_number } = req.body;
 
     if (!name || !email || !password || !nik || !username) {
         return res.status(400).json({ error: 'Name, Email, Password, NIK, and Username are required' });
+    }
+
+    if (patient_type === 'bpjs' && !bpjs_number) {
+        return res.status(400).json({ error: 'BPJS Number is required for BPJS patients' });
     }
 
     try {
@@ -268,14 +315,22 @@ router.post('/patients', authenticateToken, requireAdmin, async (req, res) => {
         // 2. Create Patient Record
         await new Promise((resolve, reject) => {
             db.run(
-                `INSERT INTO patients (user_id, nik, phone, address, date_of_birth, gender) 
-                 VALUES (?, ?, ?, ?, ?, ?)`,
-                [userId, nik, phone, address, dob, gender],
+                `INSERT INTO patients (user_id, nik, phone, address, date_of_birth, gender, patient_type, bpjs_number) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                [userId, nik, phone, address, dob, gender, patient_type || 'mandiri', bpjs_number || null],
                 (err) => {
                     if (err) reject(err);
                     else resolve();
                 }
             );
+        });
+
+        // Log audit
+        logAudit(req, 'PATIENT_REGISTERED', {
+            user_id: userId,
+            patient_name: name,
+            nik,
+            patient_type: patient_type || 'mandiri'
         });
 
         res.status(201).json({ message: 'Patient registered successfully' });
@@ -302,6 +357,226 @@ router.get('/logs', authenticateToken, requireAdmin, (req, res) => {
         }
         res.json(rows);
     });
-});
 
-module.exports = router;
+    // GET /reports/daily - Get daily reports
+    router.get('/reports/daily', authenticateToken, requireAdmin, async (req, res) => {
+        try {
+            const now = new Date();
+            const today = now.getFullYear() + '-' +
+                String(now.getMonth() + 1).padStart(2, '0') + '-' +
+                String(now.getDate()).padStart(2, '0');
+
+            // Revenue
+            const revenue = await new Promise((resolve, reject) => {
+                db.get(
+                    "SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE DATE(payment_date) = ?",
+                    [today],
+                    (err, row) => {
+                        if (err) reject(err);
+                        else resolve(row?.total || 0);
+                    }
+                );
+            });
+
+            // New patients
+            const newPatients = await new Promise((resolve, reject) => {
+                db.get(
+                    "SELECT COUNT(*) as count FROM patients WHERE DATE(created_at) = ?",
+                    [today],
+                    (err, row) => {
+                        if (err) reject(err);
+                        else resolve(row?.count || 0);
+                    }
+                );
+            });
+
+            // Appointments
+            const appointments = await new Promise((resolve, reject) => {
+                db.get(
+                    "SELECT COUNT(*) as count FROM appointments WHERE DATE(appointment_date) = ?",
+                    [today],
+                    (err, row) => {
+                        if (err) reject(err);
+                        else resolve(row?.count || 0);
+                    }
+                );
+            });
+
+            res.json({
+                revenue,
+                newPatients,
+                appointments
+            });
+        } catch (error) {
+            console.error('Error fetching daily reports:', error);
+            res.status(500).json({ error: 'Server error' });
+        }
+    });
+
+    // GET /reports/revenue-chart - Get revenue chart data
+    router.get('/reports/revenue-chart', authenticateToken, requireAdmin, (req, res) => {
+        const days = parseInt(req.query.days) || 7;
+
+        const query = `
+        SELECT 
+            DATE(payment_date) as date,
+            COALESCE(SUM(amount), 0) as amount
+        FROM payments
+        WHERE payment_date >= DATE('now', '-${days} days')
+        GROUP BY DATE(payment_date)
+        ORDER BY date ASC
+    `;
+
+        db.all(query, [], (err, rows) => {
+            if (err) {
+                console.error('Error fetching revenue chart:', err);
+                return res.status(500).json({ error: 'Database error' });
+            }
+            res.json(rows);
+        });
+    });
+
+    // GET /reports/visits-chart - Get patient visits chart data
+    router.get('/reports/visits-chart', authenticateToken, requireAdmin, (req, res) => {
+        const days = parseInt(req.query.days) || 7;
+
+        const query = `
+        SELECT 
+            DATE(created_at) as date,
+            COUNT(*) as visits
+        FROM queues
+        WHERE created_at >= DATE('now', '-${days} days')
+        GROUP BY DATE(created_at)
+        ORDER BY date ASC
+    `;
+
+        db.all(query, [], (err, rows) => {
+            if (err) {
+                console.error('Error fetching visits chart:', err);
+                return res.status(500).json({ error: 'Database error' });
+            }
+            res.json(rows);
+        });
+    });
+
+    // GET /reports/financial - Get financial reports
+    router.get('/reports/financial', authenticateToken, requireAdmin, async (req, res) => {
+        try {
+            const { startDate, endDate } = req.query;
+
+            // Total revenue
+            const totalRevenue = await new Promise((resolve, reject) => {
+                db.get(
+                    `SELECT COALESCE(SUM(amount), 0) as total 
+                 FROM payments 
+                 WHERE payment_date BETWEEN ? AND ?`,
+                    [startDate, endDate],
+                    (err, row) => {
+                        if (err) reject(err);
+                        else resolve(row?.total || 0);
+                    }
+                );
+            });
+
+            // Payment method breakdown
+            const paymentMethods = await new Promise((resolve, reject) => {
+                db.all(
+                    `SELECT 
+                    payment_method,
+                    COUNT(*) as count,
+                    COALESCE(SUM(amount), 0) as total
+                 FROM payments 
+                 WHERE payment_date BETWEEN ? AND ?
+                 GROUP BY payment_method`,
+                    [startDate, endDate],
+                    (err, rows) => {
+                        if (err) reject(err);
+                        else resolve(rows || []);
+                    }
+                );
+            });
+
+            // Insurance vs cash
+            const insuranceBreakdown = await new Promise((resolve, reject) => {
+                db.all(
+                    `SELECT 
+                    CASE WHEN insurance_type IS NOT NULL THEN 'BPJS' ELSE 'Tunai' END as type,
+                    COUNT(*) as count,
+                    COALESCE(SUM(amount), 0) as total
+                 FROM payments 
+                 WHERE payment_date BETWEEN ? AND ?
+                 GROUP BY type`,
+                    [startDate, endDate],
+                    (err, rows) => {
+                        if (err) reject(err);
+                        else resolve(rows || []);
+                    }
+                );
+            });
+
+            // Daily breakdown
+            const dailyBreakdown = await new Promise((resolve, reject) => {
+                db.all(
+                    `SELECT 
+                    DATE(payment_date) as date,
+                    COUNT(*) as transactions,
+                    COALESCE(SUM(amount), 0) as revenue
+                 FROM payments 
+                 WHERE payment_date BETWEEN ? AND ?
+                 GROUP BY DATE(payment_date)
+                 ORDER BY date DESC`,
+                    [startDate, endDate],
+                    (err, rows) => {
+                        if (err) reject(err);
+                        else resolve(rows || []);
+                    }
+                );
+            });
+
+            res.json({
+                totalRevenue,
+                paymentMethods,
+                insuranceBreakdown,
+                dailyBreakdown
+            });
+        } catch (error) {
+            console.error('Error fetching financial reports:', error);
+            res.status(500).json({ error: 'Server error' });
+        }
+    });
+
+    // GET /activity-logs - Get activity logs with filters
+    router.get('/activity-logs', authenticateToken, requireAdmin, (req, res) => {
+        const { startDate, endDate, role, limit = 100, offset = 0 } = req.query;
+
+        let query = `
+        SELECT l.*, u.email, u.name, u.role
+        FROM audit_logs l
+        LEFT JOIN users u ON l.user_id = u.id
+        WHERE 1=1
+    `;
+        const params = [];
+
+        if (startDate && endDate) {
+            query += ` AND DATE(l.timestamp) BETWEEN ? AND ?`;
+            params.push(startDate, endDate);
+        }
+
+        if (role) {
+            query += ` AND u.role = ?`;
+            params.push(role);
+        }
+
+        query += ` ORDER BY l.timestamp DESC LIMIT ? OFFSET ?`;
+        params.push(parseInt(limit), parseInt(offset));
+
+        db.all(query, params, (err, rows) => {
+            if (err) {
+                console.error('Error fetching activity logs:', err);
+                return res.status(500).json({ error: 'Database error' });
+            }
+            res.json(rows);
+        });
+    });
+
+    module.exports = router;

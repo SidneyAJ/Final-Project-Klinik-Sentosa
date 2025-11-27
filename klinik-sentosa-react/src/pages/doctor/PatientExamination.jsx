@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { FileText, Save, ArrowLeft, User, Calendar, Stethoscope, Pill, Plus, X, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { FileText, Save, ArrowLeft, User, Calendar, Stethoscope, Pill, Plus, X, AlertCircle, CheckCircle2, Activity } from 'lucide-react'
 import ScrollReveal from '../../components/ScrollReveal'
 import Toast from '../../components/Toast'
 
@@ -105,9 +105,10 @@ export default function PatientExamination() {
             const medicalRecordData = {
                 patient_id: formData.patient_id,
                 appointment_id: formData.appointment_id,
+                symptoms: formData.symptoms,
                 diagnosis: formData.diagnosis,
                 treatment: treatmentText,
-                notes: formData.symptoms ? `Gejala: ${formData.symptoms}\n\n${formData.notes}` : formData.notes
+                notes: formData.notes
             }
 
             const res = await fetch('http://localhost:3000/api/medical-records', {
@@ -241,6 +242,74 @@ export default function PatientExamination() {
                     </div>
                 </div>
             </ScrollReveal>
+
+            {/* Vital Signs Card */}
+            {appointment && (appointment.blood_pressure_systolic || appointment.weight) && (
+                <ScrollReveal delay={125}>
+                    <div className="bg-white rounded-2xl shadow-lg p-6 border-l-4 border-emerald-500">
+                        <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
+                            <Activity className="w-5 h-5 text-emerald-600" />
+                            Tanda Vital (Diperiksa oleh Perawat)
+                        </h3>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            {appointment.blood_pressure_systolic && (
+                                <div className="bg-gray-50 p-3 rounded-xl">
+                                    <p className="text-xs text-gray-500 mb-1">Tekanan Darah</p>
+                                    <p className="font-bold text-gray-800 text-lg">
+                                        {appointment.blood_pressure_systolic}/{appointment.blood_pressure_diastolic} <span className="text-xs font-normal text-gray-500">mmHg</span>
+                                    </p>
+                                </div>
+                            )}
+                            {appointment.heart_rate && (
+                                <div className="bg-gray-50 p-3 rounded-xl">
+                                    <p className="text-xs text-gray-500 mb-1">Denyut Jantung</p>
+                                    <p className="font-bold text-gray-800 text-lg">
+                                        {appointment.heart_rate} <span className="text-xs font-normal text-gray-500">bpm</span>
+                                    </p>
+                                </div>
+                            )}
+                            {appointment.temperature && (
+                                <div className="bg-gray-50 p-3 rounded-xl">
+                                    <p className="text-xs text-gray-500 mb-1">Suhu Tubuh</p>
+                                    <p className="font-bold text-gray-800 text-lg">
+                                        {appointment.temperature} <span className="text-xs font-normal text-gray-500">°C</span>
+                                    </p>
+                                </div>
+                            )}
+                            {appointment.weight && (
+                                <div className="bg-gray-50 p-3 rounded-xl">
+                                    <p className="text-xs text-gray-500 mb-1">Berat Badan</p>
+                                    <p className="font-bold text-gray-800 text-lg">
+                                        {appointment.weight} <span className="text-xs font-normal text-gray-500">kg</span>
+                                    </p>
+                                </div>
+                            )}
+                            {appointment.height && (
+                                <div className="bg-gray-50 p-3 rounded-xl">
+                                    <p className="text-xs text-gray-500 mb-1">Tinggi Badan</p>
+                                    <p className="font-bold text-gray-800 text-lg">
+                                        {appointment.height} <span className="text-xs font-normal text-gray-500">cm</span>
+                                    </p>
+                                </div>
+                            )}
+                            {appointment.oxygen_saturation && (
+                                <div className="bg-gray-50 p-3 rounded-xl">
+                                    <p className="text-xs text-gray-500 mb-1">Saturasi Oksigen</p>
+                                    <p className="font-bold text-gray-800 text-lg">
+                                        {appointment.oxygen_saturation} <span className="text-xs font-normal text-gray-500">%</span>
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+                        {appointment.vital_notes && (
+                            <div className="mt-4 bg-emerald-50 p-3 rounded-xl border border-emerald-100">
+                                <p className="text-xs text-emerald-700 font-bold mb-1">Catatan Perawat:</p>
+                                <p className="text-sm text-gray-700">{appointment.vital_notes}</p>
+                            </div>
+                        )}
+                    </div>
+                </ScrollReveal>
+            )}
 
             {/* Examination Form */}
             <form onSubmit={handleSubmit} className="space-y-6">

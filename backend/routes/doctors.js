@@ -27,11 +27,13 @@ router.get('/dashboard/stats', async (req, res) => {
             String(date.getMonth() + 1).padStart(2, '0') + '-' +
             String(date.getDate()).padStart(2, '0');
 
-        // Get today's appointments count
+        // Get today's appointments count (pending + confirmed + in_consultation + completed)
         const todayAppointmentsQuery = `
             SELECT COUNT(*) as count 
             FROM appointments 
-            WHERE doctor_id = ? AND appointment_date = ? AND status != 'cancelled'
+            WHERE doctor_id = ? 
+            AND DATE(appointment_date) = ? 
+            AND status IN ('pending', 'confirmed', 'in_consultation', 'completed')
         `;
 
         // Get active queue size (patients waiting)
@@ -39,7 +41,9 @@ router.get('/dashboard/stats', async (req, res) => {
             SELECT COUNT(*) as count 
             FROM queues q
             JOIN appointments a ON q.appointment_id = a.id
-            WHERE a.doctor_id = ? AND q.status = 'waiting'
+            WHERE a.doctor_id = ? 
+            AND DATE(a.appointment_date) = ?
+            AND q.status = 'waiting'
         `;
 
         // Get patients treated today
@@ -298,11 +302,13 @@ router.get('/queue/current', async (req, res) => {
         console.log('[Queue] Target Date:', today);
 
         // Get all queue entries for today's appointments with this doctor
+        // Only show patients who have completed nurse vital signs check
         const queueQuery = `
             SELECT 
                 q.id as queue_id,
                 q.queue_number,
                 q.status as queue_status,
+                q.nurse_status,
                 q.created_at,
                 a.id as appointment_id,
                 a.patient_id,
@@ -310,12 +316,23 @@ router.get('/queue/current', async (req, res) => {
                 a.notes,
                 a.status as appointment_status,
                 p.name as patient_name,
-                pat.phone
+                pat.phone,
+                vs.blood_pressure_systolic,
+                vs.blood_pressure_diastolic,
+                vs.heart_rate,
+                vs.temperature,
+                vs.weight,
+                vs.height,
+                vs.blood_type,
+                vs.oxygen_saturation,
+                vs.notes as vital_notes
             FROM queues q
             JOIN appointments a ON q.appointment_id = a.id
             JOIN patients pat ON a.patient_id = pat.id
             JOIN users p ON pat.user_id = p.id
+            LEFT JOIN vital_signs vs ON q.vital_signs_id = vs.id
             WHERE a.doctor_id = ? AND DATE(a.appointment_date) = ?
+            AND q.nurse_status = 'completed'
             ORDER BY q.queue_number ASC
         `;
 
@@ -585,7 +602,31 @@ router.get('/medical-records/:id', async (req, res) => {
             if (!record) {
                 return res.status(404).json({ error: 'Rekam medis tidak ditemukan' });
             }
-            res.json(record);
+
+            // Fetch prescriptions for this medical record
+            const prescQuery = `
+                SELECT medications
+                FROM prescriptions
+                WHERE appointment_id = ? AND doctor_id = ?
+                LIMIT 1
+            `;
+
+            db.get(prescQuery, [record.appointment_id, doctorId], (err, prescription) => {
+                if (err) console.error('Error fetching prescription:', err);
+
+                // Parse medications if exists
+                if (prescription && prescription.medications) {
+                    try {
+                        record.prescriptions = JSON.parse(prescription.medications);
+                    } catch (e) {
+                        record.prescriptions = [];
+                    }
+                } else {
+                    record.prescriptions = [];
+                }
+
+                res.json(record);
+            });
         });
 
     } catch (error) {

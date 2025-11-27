@@ -3,37 +3,92 @@ import { Users, Wallet, Calendar, Activity, TrendingUp, ChevronRight } from 'luc
 import ScrollReveal from '../../components/ScrollReveal'
 import CountUp from '../../components/CountUp'
 import { Link } from 'react-router-dom'
+import { Line } from 'react-chartjs-2'
+import {
+    Chart as ChartJS,
+    CategoryScale,
+    LinearScale,
+    PointElement,
+    LineElement,
+    Title,
+    Tooltip,
+    Legend,
+    Filler
+} from 'chart.js'
+
+ChartJS.register(
+    CategoryScale,
+    LinearScale,
+    PointElement,
+    LineElement,
+    Title,
+    Tooltip,
+    Legend,
+    Filler
+)
 
 export default function OwnerDashboard() {
     const [stats, setStats] = useState({
         revenue: 0,
-        patients: 0,
+        newPatients: 0,
         appointments: 0,
         activeStaff: 0
     })
 
+    const [revenueData, setRevenueData] = useState([])
+    const [visitsData, setVisitsData] = useState([])
+
     useEffect(() => {
         fetchStats()
+        fetchChartData()
+
+        // Auto-refresh every 30 seconds
+        const interval = setInterval(() => {
+            fetchStats()
+            fetchChartData()
+        }, 30000)
+
+        return () => clearInterval(interval)
     }, [])
 
     const fetchStats = async () => {
         try {
             const token = localStorage.getItem('token')
-            // Re-use admin reports endpoint as it's now accessible by owner
-            const response = await fetch('http://localhost:3000/api/admin/reports/daily', {
+            const response = await fetch('http://localhost:3000/api/admin/dashboard-stats', {
                 headers: { 'Authorization': `Bearer ${token}` }
             })
             if (response.ok) {
                 const data = await response.json()
-                setStats({
-                    revenue: data.revenue,
-                    patients: data.newPatients,
-                    appointments: data.appointments,
-                    activeStaff: 12 // Mock for now
-                })
+                setStats(data)
             }
         } catch (error) {
             console.error('Error fetching stats:', error)
+        }
+    }
+
+    const fetchChartData = async () => {
+        try {
+            const token = localStorage.getItem('token')
+
+            // Fetch revenue chart
+            const revenueRes = await fetch('http://localhost:3000/api/admin/reports/revenue-chart?days=7', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            })
+            if (revenueRes.ok) {
+                const data = await revenueRes.json()
+                setRevenueData(data)
+            }
+
+            // Fetch visits chart
+            const visitsRes = await fetch('http://localhost:3000/api/admin/reports/visits-chart?days=7', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            })
+            if (visitsRes.ok) {
+                const data = await visitsRes.json()
+                setVisitsData(data)
+            }
+        } catch (error) {
+            console.error('Error fetching chart data:', error)
         }
     }
 
@@ -50,7 +105,7 @@ export default function OwnerDashboard() {
         },
         {
             title: 'Pasien Baru',
-            value: stats.patients,
+            value: stats.newPatients,
             icon: Users,
             color: 'bg-blue-500',
             bg: 'bg-blue-50',
@@ -77,13 +132,98 @@ export default function OwnerDashboard() {
         }
     ]
 
+    const revenueChartData = {
+        labels: revenueData.map(item => {
+            const date = new Date(item.date)
+            return date.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })
+        }),
+        datasets: [{
+            label: 'Pendapatan (Rp)',
+            data: revenueData.map(item => item.amount),
+            borderColor: 'rgb(245, 158, 11)',
+            backgroundColor: 'rgba(245, 158, 11, 0.1)',
+            fill: true,
+            tension: 0.4
+        }]
+    }
+
+    const visitsChartData = {
+        labels: visitsData.map(item => {
+            const date = new Date(item.date)
+            return date.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })
+        }),
+        datasets: [{
+            label: 'Kunjungan Pasien',
+            data: visitsData.map(item => item.visits),
+            borderColor: 'rgb(16, 185, 129)',
+            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+            fill: true,
+            tension: 0.4
+        }]
+    }
+
+    const chartOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                display: false
+            },
+            tooltip: {
+                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                padding: 12,
+                titleFont: {
+                    size: 14,
+                    weight: 'bold'
+                },
+                bodyFont: {
+                    size: 13
+                },
+                callbacks: {
+                    label: function (context) {
+                        let label = context.dataset.label || '';
+                        if (label) {
+                            label += ': ';
+                        }
+                        if (context.parsed.y !== null) {
+                            if (label.includes('Pendapatan')) {
+                                label += new Intl.NumberFormat('id-ID').format(context.parsed.y);
+                            } else {
+                                label += context.parsed.y;
+                            }
+                        }
+                        return label;
+                    }
+                }
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                ticks: {
+                    callback: function (value) {
+                        return new Intl.NumberFormat('id-ID', { notation: 'compact' }).format(value);
+                    }
+                },
+                grid: {
+                    color: 'rgba(0, 0, 0, 0.05)'
+                }
+            },
+            x: {
+                grid: {
+                    display: false
+                }
+            }
+        }
+    }
+
     return (
         <div className="space-y-8">
             <ScrollReveal direction="up">
-                <div className="bg-slate-900 rounded-3xl p-8 text-white relative overflow-hidden shadow-xl">
+                <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 rounded-3xl p-8 text-white relative overflow-hidden shadow-xl">
                     <div className="relative z-10">
                         <h2 className="text-3xl font-bold mb-2">Selamat Datang, Pemilik!</h2>
-                        <p className="text-slate-400 text-lg">
+                        <p className="text-slate-300 text-lg">
                             Pantau performa klinik Anda secara real-time hari ini.
                         </p>
                     </div>
@@ -116,14 +256,38 @@ export default function OwnerDashboard() {
                 ))}
             </div>
 
-            {/* Placeholder for Charts */}
+            {/* Charts */}
             <ScrollReveal direction="up" delay={400}>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100 h-80 flex items-center justify-center">
-                        <p className="text-slate-400">Grafik Pendapatan (Coming Soon)</p>
+                    <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100">
+                        <div className="mb-4">
+                            <h3 className="text-lg font-bold text-slate-800 mb-1">Grafik Pendapatan</h3>
+                            <p className="text-sm text-slate-500">7 Hari Terakhir</p>
+                        </div>
+                        <div className="h-64">
+                            {revenueData.length > 0 ? (
+                                <Line data={revenueChartData} options={chartOptions} />
+                            ) : (
+                                <div className="flex items-center justify-center h-full text-slate-400">
+                                    Tidak ada data
+                                </div>
+                            )}
+                        </div>
                     </div>
-                    <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100 h-80 flex items-center justify-center">
-                        <p className="text-slate-400">Grafik Kunjungan Pasien (Coming Soon)</p>
+                    <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100">
+                        <div className="mb-4">
+                            <h3 className="text-lg font-bold text-slate-800 mb-1">Grafik Kunjungan Pasien</h3>
+                            <p className="text-sm text-slate-500">7 Hari Terakhir</p>
+                        </div>
+                        <div className="h-64">
+                            {visitsData.length > 0 ? (
+                                <Line data={visitsChartData} options={chartOptions} />
+                            ) : (
+                                <div className="flex items-center justify-center h-full text-slate-400">
+                                    Tidak ada data
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
             </ScrollReveal>

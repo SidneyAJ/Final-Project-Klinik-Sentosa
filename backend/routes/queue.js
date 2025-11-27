@@ -6,17 +6,18 @@ const { authenticateToken, authorizeRole } = require('../middleware/auth');
 // Helper to get today's range in UTC for created_at queries
 const getTodayRange = () => {
     const now = new Date();
-    const start = new Date(now);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(now);
-    end.setHours(23, 59, 59, 999);
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+
+    const dateStr = `${year}-${month}-${day}`;
+    const start = `${dateStr} 00:00:00`;
+    const end = `${dateStr} 23:59:59`;
 
     return {
-        start: start.toISOString(), // UTC ISO string
-        end: end.toISOString(),     // UTC ISO string
-        dateStr: start.getFullYear() + '-' +
-            String(start.getMonth() + 1).padStart(2, '0') + '-' +
-            String(start.getDate()).padStart(2, '0') // Local YYYY-MM-DD
+        start,
+        end,
+        dateStr
     };
 };
 
@@ -81,6 +82,9 @@ router.get('/', authenticateToken, (req, res) => {
             console.error('Error fetching myQueue:', err);
             return res.status(500).json({ error: 'Database error' });
         }
+
+        console.log('[GET /api/queue] Query Params:', { start, end, userId: req.user.id });
+        console.log('[GET /api/queue] Found myQueue:', myQueue);
 
         // Debug logging
         console.log(`[GET /api/queue] User ${req.user.id}:`, {
@@ -148,7 +152,7 @@ router.post('/', authenticateToken, (req, res) => {
 
                             const nextNumber = (row && row.last_number) ? row.last_number + 1 : 1;
 
-                            const query = `INSERT INTO queues (appointment_id, patient_name, queue_number, status) VALUES (?, ?, ?, 'waiting')`;
+                            const query = `INSERT INTO queues (appointment_id, patient_name, queue_number, status, created_at) VALUES (?, ?, ?, 'waiting', NOW())`;
                             db.run(query, [appointment_id, patient_name, nextNumber], function (err) {
                                 if (err) {
                                     console.error('Error adding to queue:', err);
@@ -239,7 +243,7 @@ router.post('/walkin', authenticateToken, (req, res) => {
                         const nextNumber = (row && row.last_number) ? row.last_number + 1 : 1;
                         console.log('[Walk-in] Next queue number:', nextNumber);
 
-                        const queueQuery = `INSERT INTO queues (appointment_id, patient_name, queue_number, status) VALUES (?, ?, ?, 'waiting')`;
+                        const queueQuery = `INSERT INTO queues (appointment_id, patient_name, queue_number, status, created_at) VALUES (?, ?, ?, 'waiting', NOW())`;
                         db.run(queueQuery, [appointmentId, patient_name, nextNumber], function (err) {
                             if (err) {
                                 console.error('[Walk-in] Error creating queue:', err);

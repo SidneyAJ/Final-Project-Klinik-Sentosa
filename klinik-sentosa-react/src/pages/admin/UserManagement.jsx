@@ -14,6 +14,7 @@ export default function UserManagement() {
     const [formData, setFormData] = useState({
         name: '',
         email: '',
+        username: '',
         password: '',
         role: 'doctor'
     })
@@ -29,7 +30,7 @@ export default function UserManagement() {
 
             // Remove existing titles
             let cleanName = name
-                .replace(/^(Dr\.|dr\.|DR\.|Ns\.|ns\.|NS\.)\s*/i, '')
+                .replace(/^(Dr\.|dr\.|DR\.|Ns\.|ns\.|NS\.|Apt\.|apt\.|APT\.)\s*/i, '')
                 .trim()
 
             // Add appropriate title
@@ -38,6 +39,8 @@ export default function UserManagement() {
                 prefixedName = `Dr. ${cleanName}`
             } else if (formData.role === 'nurse' && cleanName) {
                 prefixedName = `Ns. ${cleanName}`
+            } else if ((formData.role === 'apoteker' || formData.role === 'pharmacist') && cleanName) {
+                prefixedName = `Apt. ${cleanName}`
             }
 
             if (prefixedName !== formData.name) {
@@ -98,6 +101,7 @@ export default function UserManagement() {
         setFormData({
             name: user.name,
             email: user.email,
+            username: user.username || '',
             password: '', // Don't populate password
             role: user.role
         })
@@ -129,7 +133,7 @@ export default function UserManagement() {
             if (response.ok) {
                 showToast(editMode ? 'Pengguna berhasil diperbarui!' : 'Pengguna berhasil dibuat!', 'success')
                 setShowModal(false)
-                setFormData({ name: '', email: '', password: '', role: 'doctor' })
+                setFormData({ name: '', email: '', username: '', password: '', role: 'doctor' })
                 setEditMode(false)
                 setCurrentUserId(null)
                 fetchUsers()
@@ -210,7 +214,7 @@ export default function UserManagement() {
                     <button
                         onClick={() => {
                             setEditMode(false)
-                            setFormData({ name: '', email: '', password: '', role: 'doctor' })
+                            setFormData({ name: '', email: '', username: '', password: '', role: 'doctor' })
                             setShowModal(true)
                         }}
                         className="px-6 py-3 bg-white text-indigo-600 rounded-xl font-bold hover:bg-white/90 transition-all flex items-center gap-2 shadow-2xl hover:scale-105"
@@ -333,7 +337,7 @@ export default function UserManagement() {
                                     onClick={() => {
                                         setShowModal(false)
                                         setEditMode(false)
-                                        setFormData({ name: '', email: '', password: '', role: 'doctor' })
+                                        setFormData({ name: '', email: '', username: '', password: '', role: 'doctor' })
                                     }}
                                     className="p-2 hover:bg-white/20 rounded-lg transition-colors"
                                 >
@@ -359,7 +363,8 @@ export default function UserManagement() {
                                 <p className="text-xs text-slate-500 mt-1">
                                     {formData.role === 'doctor' && '🩺 Gelar "Dr." akan ditambahkan otomatis'}
                                     {formData.role === 'nurse' && '💉 Gelar "Ns." akan ditambahkan otomatis'}
-                                    {!['doctor', 'nurse'].includes(formData.role) && 'Pilih role sesuai jabatan'}
+                                    {(formData.role === 'pharmacist' || formData.role === 'apoteker') && '💊 Gelar "Apt." akan ditambahkan otomatis'}
+                                    {!['doctor', 'nurse', 'pharmacist', 'apoteker'].includes(formData.role) && 'Pilih role sesuai jabatan'}
                                 </p>
                             </div>
                             <div>
@@ -379,11 +384,25 @@ export default function UserManagement() {
                                 <input
                                     type="email"
                                     required
+                                    pattern="[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$"
+                                    title="Masukkan alamat email yang valid (contoh: nama@email.com)"
                                     className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 outline-none transition-all"
                                     value={formData.email}
                                     onChange={e => setFormData({ ...formData, email: e.target.value })}
                                     placeholder="nama@email.com"
                                 />
+                                <p className="text-xs text-slate-500 mt-1">✉️ Harus format email yang benar</p>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-bold text-slate-700 mb-2">Username <span className="text-slate-400 font-normal">(opsional)</span></label>
+                                <input
+                                    type="text"
+                                    className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 outline-none transition-all"
+                                    value={formData.username}
+                                    onChange={e => setFormData({ ...formData, username: e.target.value })}
+                                    placeholder="username_login"
+                                />
+                                <p className="text-xs text-slate-500 mt-1">🔑 Bisa digunakan untuk login selain email</p>
                             </div>
                             <div>
                                 <label className="block text-sm font-bold text-slate-700 mb-2">

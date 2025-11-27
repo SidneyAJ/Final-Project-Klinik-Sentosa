@@ -4,6 +4,7 @@ import Toast from '../../components/Toast'
 
 export default function CreateMedicalRecord({ onClose, onSuccess }) {
     const [completedPatients, setCompletedPatients] = useState([])
+    const [medicines, setMedicines] = useState([])
     const [loading, setLoading] = useState(true)
     const [submitting, setSubmitting] = useState(false)
     const [formData, setFormData] = useState({
@@ -22,11 +23,27 @@ export default function CreateMedicalRecord({ onClose, onSuccess }) {
         duration: ''
     })
     const [toast, setToast] = useState({ show: false, message: '', type: 'info' })
+    const [step, setStep] = useState(1) // 1: Medical Record, 2: Prescription
     const token = localStorage.getItem('token')
 
     useEffect(() => {
         fetchCompletedPatients()
+        fetchMedicines()
     }, [])
+
+    const fetchMedicines = async () => {
+        try {
+            const res = await fetch('http://localhost:3000/api/medicines', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            })
+            if (res.ok) {
+                const data = await res.json()
+                setMedicines(data)
+            }
+        } catch (error) {
+            console.error('Failed to fetch medicines:', error)
+        }
+    }
 
     const fetchCompletedPatients = async () => {
         try {
@@ -68,14 +85,16 @@ export default function CreateMedicalRecord({ onClose, onSuccess }) {
         setMedications(medications.filter((_, i) => i !== index))
     }
 
-    const handleSubmit = async (e) => {
+    const handleNextStep = (e) => {
         e.preventDefault()
-
         if (!formData.appointment_id || !formData.diagnosis) {
             setToast({ show: true, message: 'Pilih pasien dan isi diagnosis', type: 'warning' })
             return
         }
+        setStep(2)
+    }
 
+    const handleSubmit = async () => {
         setSubmitting(true)
         try {
             // 1. Create medical record
@@ -93,7 +112,7 @@ export default function CreateMedicalRecord({ onClose, onSuccess }) {
 
             // 2. Create prescription if medications exist
             if (medications.length > 0) {
-                await fetch('http://localhost:3000/api/prescriptions', {
+                const prescRes = await fetch('http://localhost:3000/api/prescriptions', {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${token}`,
@@ -106,6 +125,7 @@ export default function CreateMedicalRecord({ onClose, onSuccess }) {
                         notes: formData.notes
                     })
                 })
+                if (!prescRes.ok) throw new Error('Failed to create prescription')
             }
 
             setToast({ show: true, message: 'Rekam medis berhasil dibuat!', type: 'success' })
@@ -141,179 +161,217 @@ export default function CreateMedicalRecord({ onClose, onSuccess }) {
                     </button>
                 </div>
 
-                <form onSubmit={handleSubmit} className="p-6 space-y-6">
-                    {/* Patient Selection */}
-                    <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-2">
-                            <User className="w-4 h-4 inline mr-1" />
-                            Pilih Pasien *
-                        </label>
-                        {loading ? (
-                            <div className="text-gray-500">Loading...</div>
-                        ) : completedPatients.length === 0 ? (
-                            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-yellow-800">
-                                Tidak ada pasien yang sudah selesai diperiksa. Panggil pasien dari antrean terlebih dahulu.
-                            </div>
-                        ) : (
-                            <select
-                                required
-                                value={formData.appointment_id}
-                                onChange={handlePatientSelect}
-                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                            >
-                                <option value="">-- Pilih Pasien --</option>
-                                {completedPatients.map(patient => (
-                                    <option key={patient.appointment_id} value={patient.appointment_id}>
-                                        {patient.patient_name} - {patient.appointment_date} - No. Antrean: {patient.queue_number || '-'}
-                                    </option>
-                                ))}
-                            </select>
-                        )}
-                    </div>
-
-                    {/* Symptoms */}
-                    <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-2">Gejala</label>
-                        <textarea
-                            value={formData.symptoms}
-                            onChange={(e) => setFormData({ ...formData, symptoms: e.target.value })}
-                            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                            rows="3"
-                            placeholder="Keluhan pasien..."
-                        />
-                    </div>
-
-                    {/* Diagnosis */}
-                    <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-2">
-                            <FileText className="w-4 h-4 inline mr-1" />
-                            Diagnosis *
-                        </label>
-                        <textarea
-                            required
-                            value={formData.diagnosis}
-                            onChange={(e) => setFormData({ ...formData, diagnosis: e.target.value })}
-                            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                            rows="3"
-                            placeholder="Diagnosis penyakit..."
-                        />
-                    </div>
-
-                    {/* Treatment */}
-                    <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-2">Rencana Pengobatan</label>
-                        <textarea
-                            value={formData.treatment}
-                            onChange={(e) => setFormData({ ...formData, treatment: e.target.value })}
-                            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                            rows="3"
-                            placeholder="Tindakan dan pengobatan yang diberikan..."
-                        />
-                    </div>
-
-                    {/* Medications */}
-                    <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-3">
-                            <Pill className="w-4 h-4 inline mr-1" />
-                            Daftar Obat
-                        </label>
-
-                        {/* Medication List */}
-                        {medications.length > 0 && (
-                            <div className="mb-4 space-y-2">
-                                {medications.map((med, idx) => (
-                                    <div key={idx} className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center justify-between">
-                                        <div className="flex-1">
-                                            <div className="font-semibold text-gray-800">{med.name}</div>
-                                            <div className="text-sm text-gray-600">
-                                                {med.dosage} • {med.frequency} • {med.duration}
-                                            </div>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={() => removeMedication(idx)}
-                                            className="text-red-500 hover:text-red-700"
-                                        >
-                                            <Trash2 className="w-4 h-4" />
-                                        </button>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-
-                        {/* Add Medication Form */}
-                        <div className="grid grid-cols-2 gap-3">
-                            <input
-                                type="text"
-                                placeholder="Nama Obat"
-                                value={newMed.name}
-                                onChange={(e) => setNewMed({ ...newMed, name: e.target.value })}
-                                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                            />
-                            <input
-                                type="text"
-                                placeholder="Dosis (ex: 500mg)"
-                                value={newMed.dosage}
-                                onChange={(e) => setNewMed({ ...newMed, dosage: e.target.value })}
-                                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                            />
-                            <input
-                                type="text"
-                                placeholder="Frekuensi (ex: 3x sehari)"
-                                value={newMed.frequency}
-                                onChange={(e) => setNewMed({ ...newMed, frequency: e.target.value })}
-                                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                            />
-                            <input
-                                type="text"
-                                placeholder="Durasi (ex: 7 hari)"
-                                value={newMed.duration}
-                                onChange={(e) => setNewMed({ ...newMed, duration: e.target.value })}
-                                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                            />
+                <div className="p-6 space-y-6">
+                    {/* Step Indicator */}
+                    <div className="flex items-center justify-center mb-6">
+                        <div className={`flex items-center ${step >= 1 ? 'text-blue-600' : 'text-gray-400'}`}>
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${step >= 1 ? 'border-blue-600 bg-blue-50' : 'border-gray-300'}`}>1</div>
+                            <span className="ml-2 font-medium">Data Medis</span>
                         </div>
-                        <button
-                            type="button"
-                            onClick={addMedication}
-                            disabled={!newMed.name || !newMed.dosage}
-                            className="mt-2 px-4 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-all font-medium flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            <Plus className="w-4 h-4" />
-                            Tambah Obat
-                        </button>
+                        <div className={`w-16 h-1 mx-4 ${step >= 2 ? 'bg-blue-600' : 'bg-gray-200'}`}></div>
+                        <div className={`flex items-center ${step >= 2 ? 'text-blue-600' : 'text-gray-400'}`}>
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${step >= 2 ? 'border-blue-600 bg-blue-50' : 'border-gray-300'}`}>2</div>
+                            <span className="ml-2 font-medium">Resep Obat</span>
+                        </div>
                     </div>
 
-                    {/* Notes */}
-                    <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-2">Catatan Tambahan</label>
-                        <textarea
-                            value={formData.notes}
-                            onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                            rows="2"
-                            placeholder="Catatan dokter..."
-                        />
-                    </div>
+                    {step === 1 ? (
+                        <form onSubmit={handleNextStep} className="space-y-6">
+                            {/* Patient Selection */}
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                    <User className="w-4 h-4 inline mr-1" />
+                                    Pilih Pasien *
+                                </label>
+                                {loading ? (
+                                    <div className="text-gray-500">Loading...</div>
+                                ) : completedPatients.length === 0 ? (
+                                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-yellow-800">
+                                        Tidak ada pasien yang sudah selesai diperiksa. Panggil pasien dari antrean terlebih dahulu.
+                                    </div>
+                                ) : (
+                                    <select
+                                        required
+                                        value={formData.appointment_id}
+                                        onChange={handlePatientSelect}
+                                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                    >
+                                        <option value="">-- Pilih Pasien --</option>
+                                        {completedPatients.map(patient => (
+                                            <option key={patient.appointment_id} value={patient.appointment_id}>
+                                                {patient.patient_name} - {patient.appointment_date} - No. Antrean: {patient.queue_number || '-'}
+                                            </option>
+                                        ))}
+                                    </select>
+                                )}
+                            </div>
 
-                    {/* Submit */}
-                    <div className="flex gap-3 justify-end pt-4 border-t">
-                        <button
-                            type="button"
-                            onClick={onClose}
-                            className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-all font-medium"
-                        >
-                            Batal
-                        </button>
-                        <button
-                            type="submit"
-                            disabled={submitting || !formData.appointment_id}
-                            className="px-6 py-3 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-lg hover:shadow-lg transition-all font-medium flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            <Save className="w-4 h-4" />
-                            {submitting ? 'Menyimpan...' : 'Simpan Rekam Medis'}
-                        </button>
-                    </div>
-                </form>
+                            {/* Symptoms */}
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 mb-2">Gejala</label>
+                                <textarea
+                                    value={formData.symptoms}
+                                    onChange={(e) => setFormData({ ...formData, symptoms: e.target.value })}
+                                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                    rows="3"
+                                    placeholder="Keluhan pasien..."
+                                />
+                            </div>
+
+                            {/* Diagnosis */}
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                    <FileText className="w-4 h-4 inline mr-1" />
+                                    Diagnosis *
+                                </label>
+                                <textarea
+                                    required
+                                    value={formData.diagnosis}
+                                    onChange={(e) => setFormData({ ...formData, diagnosis: e.target.value })}
+                                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                    rows="3"
+                                    placeholder="Diagnosis penyakit..."
+                                />
+                            </div>
+
+                            {/* Treatment */}
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 mb-2">Rencana Pengobatan</label>
+                                <textarea
+                                    value={formData.treatment}
+                                    onChange={(e) => setFormData({ ...formData, treatment: e.target.value })}
+                                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                    rows="3"
+                                    placeholder="Tindakan dan pengobatan yang diberikan..."
+                                />
+                            </div>
+
+                            {/* Notes */}
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 mb-2">Catatan Tambahan</label>
+                                <textarea
+                                    value={formData.notes}
+                                    onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                    rows="2"
+                                    placeholder="Catatan dokter..."
+                                />
+                            </div>
+
+                            <div className="flex justify-end pt-4 border-t">
+                                <button
+                                    type="submit"
+                                    className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all font-medium"
+                                >
+                                    Lanjut ke Resep
+                                </button>
+                            </div>
+                        </form>
+                    ) : (
+                        <div className="space-y-6">
+                            {/* Medications */}
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 mb-3">
+                                    <Pill className="w-4 h-4 inline mr-1" />
+                                    Daftar Obat
+                                </label>
+
+                                {/* Medication List */}
+                                {medications.length > 0 ? (
+                                    <div className="mb-4 space-y-2">
+                                        {medications.map((med, idx) => (
+                                            <div key={idx} className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center justify-between">
+                                                <div className="flex-1">
+                                                    <div className="font-semibold text-gray-800">{med.name}</div>
+                                                    <div className="text-sm text-gray-600">
+                                                        {med.dosage} • {med.frequency} • {med.duration}
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => removeMedication(idx)}
+                                                    className="text-red-500 hover:text-red-700"
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="text-center py-8 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200 mb-4">
+                                        <p className="text-gray-500">Belum ada obat ditambahkan</p>
+                                    </div>
+                                )}
+
+                                {/* Add Medication Form */}
+                                <div className="grid grid-cols-2 gap-3 bg-gray-50 p-4 rounded-xl border border-gray-200">
+                                    <select
+                                        value={newMed.name}
+                                        onChange={(e) => setNewMed({ ...newMed, name: e.target.value })}
+                                        className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none col-span-2"
+                                    >
+                                        <option value="">-- Pilih Obat --</option>
+                                        {medicines.map(med => (
+                                            <option key={med.id} value={med.name}>
+                                                {med.name} (Stock: {med.stock} {med.unit})
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <input
+                                        type="text"
+                                        placeholder="Dosis (ex: 500mg)"
+                                        value={newMed.dosage}
+                                        onChange={(e) => setNewMed({ ...newMed, dosage: e.target.value })}
+                                        className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                    />
+                                    <input
+                                        type="text"
+                                        placeholder="Frekuensi (ex: 3x sehari)"
+                                        value={newMed.frequency}
+                                        onChange={(e) => setNewMed({ ...newMed, frequency: e.target.value })}
+                                        className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                    />
+                                    <input
+                                        type="text"
+                                        placeholder="Durasi (ex: 7 hari)"
+                                        value={newMed.duration}
+                                        onChange={(e) => setNewMed({ ...newMed, duration: e.target.value })}
+                                        className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none col-span-2"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={addMedication}
+                                        disabled={!newMed.name || !newMed.dosage}
+                                        className="mt-2 px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-all font-medium flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed col-span-2"
+                                    >
+                                        <Plus className="w-4 h-4" />
+                                        Tambah Obat
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Submit */}
+                            <div className="flex gap-3 justify-between pt-4 border-t">
+                                <button
+                                    type="button"
+                                    onClick={() => setStep(1)}
+                                    className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-all font-medium"
+                                >
+                                    Kembali
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleSubmit}
+                                    disabled={submitting}
+                                    className="px-6 py-3 bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-lg hover:shadow-lg transition-all font-medium flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    <Save className="w-4 h-4" />
+                                    {submitting ? 'Menyimpan...' : 'Simpan Rekam Medis'}
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     )

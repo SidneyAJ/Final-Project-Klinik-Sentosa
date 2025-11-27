@@ -1,21 +1,37 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../database');
-const { authenticateToken, isPharmacist } = require('../middleware/auth');
+const { authenticateToken, authorizeRole } = require('../middleware/authMiddleware');
 
 // GET /api/prescriptions/pending-verification - Get all prescriptions pending pharmacist verification
-router.get('/pending-verification', authenticateToken, isPharmacist, (req, res) => {
+router.get('/pending-verification', authenticateToken, authorizeRole('pharmacist'), (req, res) => {
     const query = `
-        SELECT p.*, 
-               pat.name as patient_name,
-               d.full_name as doctor_name,
-               mr.diagnosis
+        SELECT 
+            p.id,
+            p.patient_id,
+            p.doctor_id,
+            p.appointment_id,
+            p.medications,
+            p.notes,
+            p.status,
+            p.verified_by,
+            p.verified_at,
+            p.rejection_reason,
+            p.total_price,
+            p.dispensed,
+            p.dispensed_at,
+            p.created_at,
+            pu.name as patient_name,
+            du.name as doctor_name,
+            d.specialization,
+            mr.diagnosis
         FROM prescriptions p
         JOIN patients pat ON p.patient_id = pat.id
-        LEFT JOIN users du ON pat.user_id = du.id
+        JOIN users pu ON pat.user_id = pu.id
         LEFT JOIN doctors d ON p.doctor_id = d.id
+        LEFT JOIN users du ON d.user_id = du.id
         LEFT JOIN medical_records mr ON p.appointment_id = mr.appointment_id
-        WHERE p.verification_status = 'pending'
+        WHERE p.status = 'pending'
         ORDER BY p.created_at DESC
     `;
 
@@ -25,261 +41,220 @@ router.get('/pending-verification', authenticateToken, isPharmacist, (req, res) 
             return res.status(500).json({ error: 'Database error' });
         }
 
-        // Fetch prescription items for each prescription
-        const prescriptionPromises = prescriptions.map(prescription => {
-            return new Promise((resolve, reject) => {
-                const itemsQuery = `
-                    SELECT pi.*, m.name as medicine_name, m.unit, m.stock
-                    FROM prescription_items pi
-                    LEFT JOIN medicines m ON pi.medicine_id = m.id
-                    WHERE pi.prescription_id = ?
-                `;
+        // Parse medications JSON for each prescription
+        const result = prescriptions.map(p => ({
+            ...p,
+            medications: p.medications ? JSON.parse(p.medications) : []
+        }));
 
-                db.all(itemsQuery, [prescription.id], (err, items) => {
-                    if (err) return reject(err);
-                    prescription.items = items;
-                    resolve(prescription);
-                });
+        res.json(result);
+    });
+});
+
+
+// PUT /api/prescriptions/:id/verify - Verify prescription (approve)
+router.put('/:id/verify', authenticateToken, authorizeRole('pharmacist'), async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        // Get prescription with medications
+        const prescription = await new Promise((resolve, reject) => {
+            db.get('SELECT * FROM prescriptions WHERE id = ? AND status = ?', [id, 'pending'], (err, row) => {
+                if (err) reject(err);
+                else resolve(row);
             });
         });
 
-        Promise.all(prescriptionPromises)
-            .then(result => res.json(result))
-            .catch(err => {
-                console.error('Error fetching prescription items:', err);
-                res.status(500).json({ error: 'Database error' });
+        if (!prescription) {
+            return res.status(404).json({ error: 'Prescription not found or already processed' });
+        }
+
+        const medications = JSON.parse(prescription.medications || '[]');
+
+        // Calculate total price and check stock
+        let totalPrice = 0;
+        const stockErrors = [];
+
+        for (const med of medications) {
+            const medicine = await new Promise((resolve, reject) => {
+                db.get('SELECT * FROM medicines WHERE name = ?', [med.name], (err, row) => {
+                    if (err) reject(err);
+                    else resolve(row);
+                });
             });
-    });
-});
 
-// PUT /api/prescriptions/:id/verify - Verify prescription (approve)
-router.put('/:id/verify', authenticateToken, isPharmacist, (req, res) => {
-    const { id } = req.params;
+            if (!medicine) {
+                stockErrors.push(`Obat ${med.name} tidak ditemukan di database`);
+                continue;
+            }
 
-    const query = `
-        UPDATE prescriptions
-        SET verification_status = 'verified',
-            verified_by = ?,
-            verified_at = CURRENT_TIMESTAMP,
-            rejection_reason = NULL
-        WHERE id = ?
-    `;
+            if (medicine.stock < (med.quantity || 1)) {
+                stockErrors.push(`Stock ${med.name} tidak cukup (tersedia: ${medicine.stock})`);
+                continue;
+            }
 
-    db.run(query, [req.user.id, id], function (err) {
-        if (err) {
-            console.error('Error verifying prescription:', err);
-            return res.status(500).json({ error: 'Failed to verify prescription' });
+            totalPrice += (medicine.price || 0) * (med.quantity || 1);
         }
 
-        if (this.changes === 0) {
-            return res.status(404).json({ error: 'Prescription not found' });
+        if (stockErrors.length > 0) {
+            return res.status(400).json({ error: 'Stock tidak mencukupi', details: stockErrors });
         }
 
-        res.json({ message: 'Prescription verified successfully' });
-    });
+        // Update prescription status and price
+        await new Promise((resolve, reject) => {
+            const query = `
+                UPDATE prescriptions
+                SET status = 'verified',
+                    verified_by = ?,
+                    verified_at = NOW(),
+                    total_price = ?,
+                    rejection_reason = NULL
+                WHERE id = ?
+            `;
+            db.run(query, [req.user.id, totalPrice, id], function (err) {
+                if (err) reject(err);
+                else resolve(this);
+            });
+        });
+
+        // Reduce stock for each medication
+        for (const med of medications) {
+            const medicine = await new Promise((resolve, reject) => {
+                db.get('SELECT id FROM medicines WHERE name = ?', [med.name], (err, row) => {
+                    if (err) reject(err);
+                    else resolve(row);
+                });
+            });
+
+            if (medicine) {
+                await new Promise((resolve, reject) => {
+                    db.run(
+                        'UPDATE medicines SET stock = stock - ? WHERE id = ?',
+                        [med.quantity || 1, medicine.id],
+                        (err) => {
+                            if (err) reject(err);
+                            else resolve();
+                        }
+                    );
+                });
+            }
+        }
+
+        // Create notification for patient
+        const patient = await new Promise((resolve, reject) => {
+            db.get('SELECT user_id FROM patients WHERE id = ?', [prescription.patient_id], (err, row) => {
+                if (err) reject(err);
+                else resolve(row);
+            });
+        });
+
+        if (patient) {
+            await new Promise((resolve, reject) => {
+                const notifQuery = `
+                    INSERT INTO notifications (user_id, title, message, type, created_at)
+                    VALUES (?, ?, ?, ?, NOW())
+                `;
+                db.run(notifQuery, [
+                    patient.user_id,
+                    'Resep Diverifikasi',
+                    `Resep obat Anda telah diverifikasi apoteker. Total: Rp ${totalPrice.toLocaleString('id-ID')}`,
+                    'success'
+                ], (err) => {
+                    if (err) reject(err);
+                    else resolve();
+                });
+            });
+        }
+
+        res.json({
+            message: 'Prescription verified successfully',
+            totalPrice,
+            stockReduced: true
+        });
+
+    } catch (error) {
+        console.error('Error verifying prescription:', error);
+        res.status(500).json({ error: 'Failed to verify prescription' });
+    }
 });
 
 // PUT /api/prescriptions/:id/reject - Reject prescription
-router.put('/:id/reject', authenticateToken, isPharmacist, (req, res) => {
+router.put('/:id/reject', authenticateToken, authorizeRole('pharmacist'), async (req, res) => {
     const { id } = req.params;
     const { reason } = req.body;
+
+    console.log('[REJECT] Rejecting prescription:', { id, reason, user: req.user.id });
 
     if (!reason || !reason.trim()) {
         return res.status(400).json({ error: 'Rejection reason is required' });
     }
 
-    const query = `
-        UPDATE prescriptions
-        SET verification_status = 'rejected',
-            verified_by = ?,
-            verified_at = CURRENT_TIMESTAMP,
-            rejection_reason = ?
-        WHERE id = ?
-    `;
+    try {
+        const query = `
+            UPDATE prescriptions
+            SET status = 'rejected',
+                verified_by = ?,
+                verified_at = NOW(),
+                rejection_reason = ?
+            WHERE id = ? AND status = 'pending'
+        `;
 
-    db.run(query, [req.user.id, reason, id], function (err) {
-        if (err) {
-            console.error('Error rejecting prescription:', err);
-            return res.status(500).json({ error: 'Failed to reject prescription' });
+        const result = await new Promise((resolve, reject) => {
+            db.run(query, [req.user.id, reason, id], function (err) {
+                if (err) reject(err);
+                else resolve(this);
+            });
+        });
+
+        if (result.changes === 0) {
+            console.log('[REJECT] ❌ Prescription not found or already processed');
+            return res.status(404).json({ error: 'Prescription not found or already processed' });
         }
 
-        if (this.changes === 0) {
-            return res.status(404).json({ error: 'Prescription not found' });
+        console.log('[REJECT] ✅ Prescription rejected successfully');
+
+        // Get patient info for notification
+        const prescription = await new Promise((resolve, reject) => {
+            db.get('SELECT patient_id FROM prescriptions WHERE id = ?', [id], (err, row) => {
+                if (err) reject(err);
+                else resolve(row);
+            });
+        });
+
+        if (prescription) {
+            const patient = await new Promise((resolve, reject) => {
+                db.get('SELECT user_id FROM patients WHERE id = ?', [prescription.patient_id], (err, row) => {
+                    if (err) reject(err);
+                    else resolve(row);
+                });
+            });
+
+            if (patient) {
+                await new Promise((resolve, reject) => {
+                    const notifQuery = `
+                        INSERT INTO notifications (user_id, title, message, type, created_at)
+                        VALUES (?, ?, ?, ?, NOW())
+                    `;
+                    db.run(notifQuery, [
+                        patient.user_id,
+                        'Resep Ditolak',
+                        `Resep obat Anda ditolak. Alasan: ${reason}`,
+                        'warning'
+                    ], (err) => {
+                        if (err) reject(err);
+                        else resolve();
+                    });
+                });
+            }
         }
 
         res.json({ message: 'Prescription rejected successfully' });
-    });
+
+    } catch (error) {
+        console.error('Error rejecting prescription:', error);
+        res.status(500).json({ error: 'Failed to reject prescription' });
+    }
 });
 
-// PUT /api/prescriptions/:id/dispense - Mark prescription as dispensed and deduct stock
-router.put('/:id/dispense', authenticateToken, isPharmacist, (req, res) => {
-    const { id } = req.params;
-
-    // First, check if prescription is verified
-    db.get('SELECT * FROM prescriptions WHERE id = ?', [id], (err, prescription) => {
-        if (err) {
-            return res.status(500).json({ error: 'Database error' });
-        }
-
-        if (!prescription) {
-            return res.status(404).json({ error: 'Prescription not found' });
-        }
-
-        if (prescription.verification_status !== 'verified') {
-            return res.status(400).json({ error: 'Prescription must be verified before dispensing' });
-        }
-
-        if (prescription.dispensed) {
-            return res.status(400).json({ error: 'Prescription already dispensed' });
-        }
-
-        // Get prescription items
-        const itemsQuery = 'SELECT * FROM prescription_items WHERE prescription_id = ?';
-
-        db.all(itemsQuery, [id], (err, items) => {
-            if (err) {
-                return res.status(500).json({ error: 'Database error' });
-            }
-
-            // Check stock availability for all items
-            let stockErrors = [];
-            const stockChecks = items.map(item => {
-                return new Promise((resolve, reject) => {
-                    if (!item.medicine_id) {
-                        return resolve(); // Skip items without medicine_id
-                    }
-
-                    db.get('SELECT * FROM medicines WHERE id = ?', [item.medicine_id], (err, medicine) => {
-                        if (err) return reject(err);
-
-                        if (!medicine) {
-                            stockErrors.push(`Medicine ID ${item.medicine_id} not found`);
-                        } else if (medicine.stock < item.quantity) {
-                            stockErrors.push(`${medicine.name}: stock insufficient (available: ${medicine.stock}, needed: ${item.quantity})`);
-                        }
-
-                        resolve();
-                    });
-                });
-            });
-
-            Promise.all(stockChecks)
-                .then(() => {
-                    if (stockErrors.length > 0) {
-                        return res.status(400).json({
-                            error: 'Stock insufficient',
-                            details: stockErrors
-                        });
-                    }
-
-                    // Deduct stock for each item
-                    const deductPromises = items.map(item => {
-                        return new Promise((resolve, reject) => {
-                            if (!item.medicine_id) {
-                                return resolve();
-                            }
-
-                            const deductQuery = `
-                                UPDATE medicines 
-                                SET stock = stock - ?
-                                WHERE id = ?
-                            `;
-
-                            db.run(deductQuery, [item.quantity, item.medicine_id], function (err) {
-                                if (err) return reject(err);
-
-                                // Log to stock history
-                                const historyQuery = `
-                                    INSERT INTO stock_history 
-                                    (medicine_id, change_amount, reason, user_id, prescription_id)
-                                    VALUES (?, ?, ?, ?, ?)
-                                `;
-
-                                db.run(historyQuery, [
-                                    item.medicine_id,
-                                    -item.quantity,
-                                    'Dispensed to patient',
-                                    req.user.id,
-                                    id
-                                ], (err) => {
-                                    if (err) return reject(err);
-                                    resolve();
-                                });
-                            });
-                        });
-                    });
-
-                    return Promise.all(deductPromises);
-                })
-                .then(() => {
-                    // Mark prescription as dispensed
-                    const updateQuery = `
-                        UPDATE prescriptions
-                        SET dispensed = TRUE,
-                            dispensed_at = CURRENT_TIMESTAMP
-                        WHERE id = ?
-                    `;
-
-                    db.run(updateQuery, [id], function (err) {
-                        if (err) {
-                            console.error('Error marking prescription as dispensed:', err);
-                            return res.status(500).json({ error: 'Failed to mark as dispensed' });
-                        }
-
-                        res.json({ message: 'Prescription dispensed successfully, stock updated' });
-                    });
-                })
-                .catch(err => {
-                    console.error('Error deducting stock:', err);
-                    res.status(500).json({ error: 'Failed to deduct stock' });
-                });
-        });
-    });
-});
-
-// GET /api/prescriptions/verified - Get verified prescriptions (for patient view)
-router.get('/verified', authenticateToken, (req, res) => {
-    const query = `
-        SELECT p.*, 
-               d.full_name as doctor_name,
-               pat.name as patient_name
-        FROM prescriptions p
-        LEFT JOIN doctors d ON p.doctor_id = d.id
-        LEFT JOIN patients pat ON p.patient_id = pat.id
-        LEFT JOIN users u ON pat.user_id = u.id
-        WHERE p.verification_status = 'verified'
-        AND u.id = ?
-        ORDER BY p.created_at DESC
-    `;
-
-    db.all(query, [req.user.id], (err, prescriptions) => {
-        if (err) {
-            console.error('Error fetching verified prescriptions:', err);
-            return res.status(500).json({ error: 'Database error' });
-        }
-
-        // Fetch items for each prescription
-        const promises = prescriptions.map(p => {
-            return new Promise((resolve, reject) => {
-                db.all(
-                    'SELECT pi.*, m.name as medicine_name, m.unit FROM prescription_items pi LEFT JOIN medicines m ON pi.medicine_id = m.id WHERE pi.prescription_id = ?',
-                    [p.id],
-                    (err, items) => {
-                        if (err) return reject(err);
-                        p.items = items;
-                        resolve(p);
-                    }
-                );
-            });
-        });
-
-        Promise.all(promises)
-            .then(result => res.json(result))
-            .catch(err => {
-                console.error('Error fetching prescription items:', err);
-                res.status(500).json({ error: 'Database error' });
-            });
-    });
-});
 
 module.exports = router;

@@ -78,10 +78,6 @@ export default function PaymentCashier() {
                         <h1 className="text-2xl font-bold text-slate-800 mb-2">Kasir & Pembayaran</h1>
                         <p className="text-slate-600">Kelola tagihan dan pembayaran pasien</p>
                     </div>
-                    <button className="px-4 py-2 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-colors flex items-center gap-2 shadow-lg shadow-emerald-500/30">
-                        <Plus className="w-5 h-5" />
-                        Buat Tagihan Baru
-                    </button>
                 </div>
             </ScrollReveal>
 

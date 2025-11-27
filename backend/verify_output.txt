@@ -1,0 +1,33 @@
+﻿≡ƒÜÇ Starting Payment System Verification...
+
+1. Logging in as Admin...
+Γ£à Connected to MySQL database (klinik_sentosa)
+Γ£à Admin logged in
+
+2. Creating Test Medicine...
+Γ£à Medicine created (ID: 55, Stock: 100)
+
+3. Registering BPJS Patient...
+Γ£à BPJS Patient registered
+
+4. Registering Mandiri Patient...
+Γ£à Mandiri Patient registered
+Γ£à Mandiri Patient logged in (ID: 43)
+
+5. Creating Prescription for Mandiri Patient...
+Γ£à Prescription created (ID: 13)
+
+6. Patient Uploading Payment Proof...
+node : Γ¥î Verification Failed: {
+At line:1 char:1
++ node verify_payment_system.js 2>&1 | Out-File -FilePath 
+verify_output ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Γ¥î Verificat 
+   ion Failed: {:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  error: 'Server error',
+  details: "Unknown column 'prescription_id' in 'field 
+list'"
+}

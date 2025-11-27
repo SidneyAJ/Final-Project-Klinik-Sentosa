@@ -3,6 +3,8 @@ const router = express.Router();
 const db = require('../database');
 const jwt = require('jsonwebtoken');
 const { SECRET_KEY } = require('../middleware/auth');
+const { calculatePaymentTotal } = require('../utils/paymentCalculator');
+const logAudit = require('../utils/auditLogger');
 
 // Middleware to authenticate JWT token
 function authenticateToken(req, res, next) {
@@ -288,6 +290,156 @@ router.post('/medical-records', authenticateToken, async (req, res) => {
             res.status(201).json({ message: 'Medical record created', id: recordId });
         });
     });
+});
+
+// GET /api/patients/my-bills - Get unpaid bills
+router.get('/my-bills', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        // Get patient info
+        const [patient] = await db.query('SELECT * FROM patients WHERE user_id = ?', [userId]);
+        if (!patient) return res.status(404).json({ error: 'Patient not found' });
+
+        // If BPJS, no bills
+        if (patient.patient_type === 'bpjs') {
+            return res.json([]);
+        }
+
+        // Get unpaid prescriptions (that haven't been paid yet)
+        // We check if there's a payment record for this prescription that is verified or pending
+        const query = `
+            SELECT pres.*, d.full_name as doctor_name
+            FROM prescriptions pres
+            JOIN doctors d ON pres.doctor_id = d.id
+            WHERE pres.patient_id = ? 
+            AND pres.status != 'redeemed'
+            AND pres.id NOT IN (
+                SELECT prescription_id FROM payments 
+                WHERE patient_id = ? AND (status = 'verified' OR status = 'pending') AND prescription_id IS NOT NULL
+            )
+            ORDER BY pres.created_at DESC
+        `;
+
+        const prescriptions = await db.query(query, [patient.id, patient.id]);
+
+        // Calculate totals for each bill
+        const bills = prescriptions.map(pres => {
+            const calculation = calculatePaymentTotal(pres, patient.patient_type);
+            return {
+                prescription_id: pres.id,
+                doctor_name: pres.doctor_name,
+                date: pres.created_at,
+                amount: calculation.total,
+                details: calculation.items
+            };
+        });
+
+        res.json(bills);
+    } catch (error) {
+        console.error('Get bills error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// POST /api/patients/payments/upload - Upload payment proof
+router.post('/payments/upload', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    const { prescription_id, amount, payment_proof } = req.body;
+
+    if (!prescription_id || !amount) {
+        return res.status(400).json({ error: 'Prescription ID and Amount are required' });
+    }
+
+    try {
+        const [patient] = await db.query('SELECT * FROM patients WHERE user_id = ?', [userId]);
+        if (!patient) return res.status(404).json({ error: 'Patient not found' });
+
+        // Create payment record with pending status
+        const result = await db.query(
+            `INSERT INTO payments (
+                patient_id, prescription_id, amount, payment_date, 
+                payment_method, status, payment_proof, notes
+            ) VALUES (?, ?, ?, NOW(), 'transfer', 'pending', ?, 'Menunggu konfirmasi admin')`,
+            [patient.id, prescription_id, amount, payment_proof || null]
+        );
+
+        const paymentId = result.insertId || result[0]?.insertId;
+
+        // Log audit
+        logAudit(req, 'PAYMENT_UPLOADED', {
+            payment_id: paymentId,
+            patient_id: patient.id,
+            amount
+        });
+
+        res.status(201).json({ message: 'Payment uploaded successfully', paymentId });
+    } catch (error) {
+        console.error('Upload payment error:', error);
+        res.status(500).json({ error: 'Server error', details: error.message });
+    }
+});
+
+// POST /api/patients/payments/pay - Process direct payment (Simulation)
+router.post('/payments/pay', authenticateToken, async (req, res) => {
+    const userId = req.user.id;
+    const { prescription_id, amount, payment_method } = req.body;
+
+    if (!prescription_id || !amount || !payment_method) {
+        return res.status(400).json({ error: 'Prescription ID, Amount, and Payment Method are required' });
+    }
+
+    try {
+        const [patient] = await db.query('SELECT * FROM patients WHERE user_id = ?', [userId]);
+        if (!patient) return res.status(404).json({ error: 'Patient not found' });
+
+        // Simulate payment processing
+        // In a real app, this would call a payment gateway
+        // Here we just create a verified payment record immediately
+
+        const result = await db.query(
+            `INSERT INTO payments (
+                patient_id, prescription_id, amount, payment_date, 
+                payment_method, status, notes
+            ) VALUES (?, ?, ?, NOW(), ?, 'pending', 'Menunggu verifikasi admin')`,
+            [patient.id, prescription_id, amount, payment_method]
+        );
+
+        const paymentId = result.insertId || result[0]?.insertId;
+
+        // Log audit
+        logAudit(req, 'PAYMENT_PROCESSED', {
+            payment_id: paymentId,
+            patient_id: patient.id,
+            amount,
+            method: payment_method
+        });
+
+        res.status(201).json({ message: 'Payment successful', paymentId });
+    } catch (error) {
+        console.error('Payment processing error:', error);
+        res.status(500).json({ error: 'Server error', details: error.message });
+    }
+});
+
+// GET /api/patients/my-payments - Get payment history
+router.get('/my-payments', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const [patient] = await db.query('SELECT id FROM patients WHERE user_id = ?', [userId]);
+
+        if (!patient) return res.json([]);
+
+        const payments = await db.query(
+            `SELECT * FROM payments WHERE patient_id = ? ORDER BY payment_date DESC`,
+            [patient.id]
+        );
+
+        res.json(payments);
+    } catch (error) {
+        console.error('Get payments error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
 });
 
 module.exports = router;

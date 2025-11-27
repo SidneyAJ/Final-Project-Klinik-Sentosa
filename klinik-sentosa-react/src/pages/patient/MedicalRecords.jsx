@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { FileText, Calendar, User, Stethoscope, Pill, FileCheck, ChevronDown, ChevronUp } from 'lucide-react'
+import { FileText, Calendar, User, Stethoscope, Pill, FileCheck, ChevronDown, ChevronUp, Activity } from 'lucide-react'
 import ScrollReveal from '../../components/ScrollReveal'
 
 export default function PatientMedicalRecords() {
@@ -160,6 +160,50 @@ export default function PatientMedicalRecords() {
 
                                 {expandedId === record.id && (
                                     <div className="px-6 pb-6 pt-0 border-t border-gray-100 bg-gray-50 space-y-4">
+                                        {/* Vital Signs */}
+                                        {(record.blood_pressure_systolic || record.weight) && (
+                                            <div>
+                                                <div className="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-2 mt-4">
+                                                    <Activity className="w-4 h-4 text-emerald-600" />
+                                                    Tanda Vital
+                                                </div>
+                                                <div className="bg-white p-4 rounded-lg border border-gray-100 grid grid-cols-2 md:grid-cols-4 gap-4">
+                                                    {record.blood_pressure_systolic && (
+                                                        <div>
+                                                            <p className="text-xs text-gray-500 mb-1">Tekanan Darah</p>
+                                                            <p className="font-bold text-gray-800">
+                                                                {record.blood_pressure_systolic}/{record.blood_pressure_diastolic} <span className="text-xs font-normal text-gray-500">mmHg</span>
+                                                            </p>
+                                                        </div>
+                                                    )}
+                                                    {record.heart_rate && (
+                                                        <div>
+                                                            <p className="text-xs text-gray-500 mb-1">Denyut Jantung</p>
+                                                            <p className="font-bold text-gray-800">
+                                                                {record.heart_rate} <span className="text-xs font-normal text-gray-500">bpm</span>
+                                                            </p>
+                                                        </div>
+                                                    )}
+                                                    {record.temperature && (
+                                                        <div>
+                                                            <p className="text-xs text-gray-500 mb-1">Suhu Tubuh</p>
+                                                            <p className="font-bold text-gray-800">
+                                                                {record.temperature} <span className="text-xs font-normal text-gray-500">°C</span>
+                                                            </p>
+                                                        </div>
+                                                    )}
+                                                    {record.weight && (
+                                                        <div>
+                                                            <p className="text-xs text-gray-500 mb-1">Berat Badan</p>
+                                                            <p className="font-bold text-gray-800">
+                                                                {record.weight} <span className="text-xs font-normal text-gray-500">kg</span>
+                                                            </p>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
+
                                         {record.treatment && (
                                             <div>
                                                 <div className="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-2">

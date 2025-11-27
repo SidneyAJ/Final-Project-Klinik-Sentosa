@@ -1,6 +1,7 @@
 
 
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { CreditCard, Download, Calendar, CheckCircle2, Clock, AlertCircle } from 'lucide-react'
 import ScrollReveal from '../../components/ScrollReveal'
 
@@ -8,6 +9,7 @@ export default function Payments() {
     const [payments, setPayments] = useState([])
     const [loading, setLoading] = useState(true)
     const [filter, setFilter] = useState('all') // all, paid, pending
+    const navigate = useNavigate()
     const token = localStorage.getItem('token')
 
     useEffect(() => {
@@ -16,31 +18,58 @@ export default function Payments() {
 
     const fetchPayments = async () => {
         try {
-            const res = await fetch('http://localhost:3000/api/payments', {
-                headers: { 'Authorization': `Bearer ${token}` }
-            })
-            const data = await res.json()
-            if (res.ok && Array.isArray(data)) {
-                setPayments(data)
-            } else {
-                console.error('Failed to fetch payments:', data)
-                setPayments([])
+            const [resPayments, resBills] = await Promise.all([
+                fetch('http://localhost:3000/api/patients/my-payments', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                }),
+                fetch('http://localhost:3000/api/patients/my-bills', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                })
+            ])
+
+            const paymentsData = await resPayments.json()
+            const billsData = await resBills.json()
+
+            let allItems = []
+
+            // Process payments (History)
+            if (resPayments.ok && Array.isArray(paymentsData)) {
+                allItems = [...allItems, ...paymentsData]
             }
+
+            // Process bills (Unpaid)
+            if (resBills.ok && Array.isArray(billsData)) {
+                const formattedBills = billsData.map(bill => ({
+                    id: `bill-${bill.prescription_id}`,
+                    amount: bill.amount,
+                    status: 'unpaid', // Custom status for frontend
+                    created_at: bill.date,
+                    description: `Tagihan Pengobatan - Dr. ${bill.doctor_name}`,
+                    is_bill: true, // Flag to identify it's a bill
+                    prescription_id: bill.prescription_id
+                }))
+                allItems = [...allItems, ...formattedBills]
+            }
+
+            // Sort by date desc
+            allItems.sort((a, b) => new Date(b.created_at || b.payment_date) - new Date(a.created_at || a.payment_date))
+
+            setPayments(allItems)
             setLoading(false)
         } catch (error) {
-            console.error('Error fetching payments:', error)
+            console.error('Error fetching data:', error)
             setLoading(false)
         }
     }
 
     const filteredPayments = payments.filter(payment => {
-        if (filter === 'paid') return payment.status === 'paid'
-        if (filter === 'pending') return payment.status === 'pending'
+        if (filter === 'paid') return payment.status === 'verified' || payment.status === 'paid'
+        if (filter === 'pending') return payment.status === 'pending' || payment.status === 'unpaid'
         return true
     })
 
-    const totalPaid = payments.filter(p => p.status === 'paid').reduce((sum, p) => sum + p.amount, 0)
-    const totalPending = payments.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0)
+    const totalPaid = payments.filter(p => p.status === 'verified' || p.status === 'paid').reduce((sum, p) => sum + p.amount, 0)
+    const totalPending = payments.filter(p => p.status === 'pending' || p.status === 'unpaid').reduce((sum, p) => sum + p.amount, 0)
 
     const formatCurrency = (amount) => {
         return new Intl.NumberFormat('id-ID', {
@@ -171,12 +200,27 @@ export default function Payments() {
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-3">
-                                        <span className={`px-4 py-2 rounded-lg text-sm font-semibold ${payment.status === 'paid'
+                                        <span className={`px-4 py-2 rounded-lg text-sm font-semibold ${payment.status === 'verified' || payment.status === 'paid'
                                             ? 'bg-green-100 text-green-700'
-                                            : 'bg-orange-100 text-orange-700'
+                                            : payment.status === 'rejected'
+                                                ? 'bg-red-100 text-red-700'
+                                                : payment.status === 'unpaid'
+                                                    ? 'bg-red-100 text-red-700'
+                                                    : 'bg-orange-100 text-orange-700'
                                             }`}>
-                                            {payment.status === 'paid' ? 'Lunas' : 'Belum Bayar'}
+                                            {payment.status === 'verified' || payment.status === 'paid' ? 'Lunas' :
+                                                payment.status === 'rejected' ? 'Ditolak' :
+                                                    payment.status === 'unpaid' ? 'Belum Dibayar' : 'Menunggu Verifikasi'}
                                         </span>
+                                        {payment.status === 'unpaid' && (
+                                            <button
+                                                onClick={() => navigate('/patient/payments/upload')}
+                                                className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700 hover:scale-105 transition-all duration-300"
+                                            >
+                                                <CreditCard className="w-4 h-4" />
+                                                Bayar
+                                            </button>
+                                        )}
                                         {payment.status === 'paid' && (
                                             <button className="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700 hover:scale-105 transition-all duration-300">
                                                 <Download className="w-4 h-4" />

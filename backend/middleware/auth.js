@@ -19,4 +19,11 @@ function authenticateToken(req, res, next) {
     });
 }
 
-module.exports = { authenticateToken, SECRET_KEY };
+function isPharmacist(req, res, next) {
+    if (req.user.role !== 'apoteker') {
+        return res.status(403).json({ error: 'Access denied. Pharmacist role required.' });
+    }
+    next();
+}
+
+module.exports = { authenticateToken, isPharmacist, SECRET_KEY };

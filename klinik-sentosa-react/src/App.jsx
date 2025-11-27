@@ -10,6 +10,7 @@ import Queue from './pages/patient/Queue'
 import MedicalRecords from './pages/patient/MedicalRecords'
 import Prescriptions from './pages/patient/Prescriptions'
 import Payments from './pages/patient/Payments'
+import UploadPayment from './pages/patient/UploadPayment'
 import DoctorLayout from './layouts/DoctorLayout'
 import DoctorDashboard from './pages/doctor/DoctorDashboard'
 import DoctorAppointments from './pages/doctor/DoctorAppointments'
@@ -21,24 +22,25 @@ import DoctorMedicalRecords from './pages/doctor/MedicalRecords'
 import NurseLayout from './layouts/NurseLayout'
 import NurseDashboard from './pages/nurse/NurseDashboard'
 import NurseQueue from './pages/nurse/NurseQueue'
-import VitalSigns from './pages/nurse/VitalSigns'
-import NursePatients from './pages/nurse/NursePatients'
+import NursePatientList from './pages/nurse/NursePatientList'
 import AdminLayout from './layouts/AdminLayout'
 import AdminDashboard from './pages/admin/AdminDashboard'
 import UserManagement from './pages/admin/UserManagement'
 import PatientRegistration from './pages/admin/PatientRegistration'
 import PaymentCashier from './pages/admin/PaymentCashier'
+import CreatePayment from './pages/admin/CreatePayment'
+import PaymentVerification from './pages/admin/PaymentVerification'
 import Reports from './pages/admin/Reports'
 import AuditLogs from './pages/admin/AuditLogs'
 import PharmacistLayout from './layouts/PharmacistLayout'
 import PharmacistDashboard from './pages/pharmacist/PharmacistDashboard'
 import PrescriptionQueue from './pages/pharmacist/PrescriptionQueue'
 import MedicineInventory from './pages/pharmacist/MedicineInventory'
-import PharmacistVerification from './pages/pharmacist/Verification'
+import PrescriptionVerification from './pages/pharmacist/PrescriptionVerification'
 import OwnerLayout from './layouts/OwnerLayout'
 import OwnerDashboard from './pages/owner/OwnerDashboard'
-import FinancialReport from './pages/owner/FinancialReport'
-import StaffActivity from './pages/owner/StaffActivity'
+import OwnerFinancial from './pages/owner/OwnerFinancial'
+import OwnerActivity from './pages/owner/OwnerActivity'
 import ProfileSettings from './components/ProfileSettings'
 import './index.css'
 
@@ -59,6 +61,7 @@ function App() {
             <Route path="records" element={<MedicalRecords />} />
             <Route path="prescriptions" element={<Prescriptions />} />
             <Route path="payments" element={<Payments />} />
+            <Route path="payments/upload" element={<UploadPayment />} />
             <Route path="settings" element={<ProfileSettings />} />
           </Route>
 
@@ -78,6 +81,7 @@ function App() {
           <Route path="/nurse" element={<ProtectedRoute requiredRole="nurse"><NurseLayout /></ProtectedRoute>}>
             <Route index element={<NurseDashboard />} />
             <Route path="queue" element={<NurseQueue />} />
+            <Route path="patients" element={<NursePatientList />} />
             <Route path="settings" element={<ProfileSettings />} />
           </Route>
 
@@ -87,6 +91,8 @@ function App() {
             <Route path="users" element={<UserManagement />} />
             <Route path="patients" element={<PatientRegistration />} />
             <Route path="payments" element={<PaymentCashier />} />
+            <Route path="payments/create" element={<CreatePayment />} />
+            <Route path="payments/verify" element={<PaymentVerification />} />
             <Route path="reports" element={<Reports />} />
             <Route path="logs" element={<AuditLogs />} />
             <Route path="settings" element={<ProfileSettings />} />
@@ -95,7 +101,7 @@ function App() {
           {/* Protected Pharmacist Routes */}
           <Route path="/pharmacist" element={<ProtectedRoute requiredRole="pharmacist"><PharmacistLayout /></ProtectedRoute>}>
             <Route index element={<PharmacistDashboard />} />
-            <Route path="verification" element={<PharmacistVerification />} />
+            <Route path="verification" element={<PrescriptionVerification />} />
             <Route path="prescriptions" element={<PrescriptionQueue />} />
             <Route path="inventory" element={<MedicineInventory />} />
             <Route path="settings" element={<ProfileSettings />} />
@@ -104,8 +110,8 @@ function App() {
           {/* Protected Owner Routes */}
           <Route path="/owner" element={<ProtectedRoute requiredRole="owner"><OwnerLayout /></ProtectedRoute>}>
             <Route index element={<OwnerDashboard />} />
-            <Route path="financial" element={<FinancialReport />} />
-            <Route path="activity" element={<StaffActivity />} />
+            <Route path="financial" element={<OwnerFinancial />} />
+            <Route path="activity" element={<OwnerActivity />} />
             <Route path="settings" element={<ProfileSettings />} />
           </Route>
         </Routes>
@@ -115,4 +121,3 @@ function App() {
 }
 
 export default App
-

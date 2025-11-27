@@ -1,0 +1,35 @@
+🚀 Starting Payment System Verification...
+
+1. Logging in as Admin...
+✅ Connected to MySQL database (klinik_sentosa)
+✅ Admin logged in
+
+2. Creating Test Medicine...
+✅ Medicine created (ID: 58, Stock: 100)
+
+3. Registering BPJS Patient...
+✅ BPJS Patient registered
+
+4. Registering Mandiri Patient...
+✅ Mandiri Patient registered
+✅ Mandiri Patient logged in (ID: 49)
+
+5. Creating Prescription for Mandiri Patient...
+✅ Prescription created (ID: 16)
+
+6. Patient Uploading Payment Proof...
+✅ Payment uploaded (ID: 1)
+
+7. Admin Verifying Payment...
+✅ Payment verified
+
+8. Checking Stock Reduction...
+Current Stock: 100
+❌ Stock reduction failed! Expected 90, got 100
+
+9. Testing Admin Manual Payment...
+✅ Manual payment created
+Current Stock: 100
+❌ Stock reduction failed! Expected 85, got 100
+
+🎉 Verification Complete!

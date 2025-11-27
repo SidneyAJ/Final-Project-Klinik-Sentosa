@@ -3,7 +3,7 @@ import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom'
 import {
     LayoutDashboard, Calendar, Users, FileText, Pill,
     CreditCard, LogOut, Menu, X, Bell, User, ChevronRight,
-    Heart, Settings
+    Heart, Settings, Upload
 } from 'lucide-react'
 import MedicalLogo from '../components/MedicalLogo'
 import NotificationDropdown from '../components/NotificationDropdown'
@@ -22,7 +22,8 @@ export default function PatientLayout() {
         { path: '/patient/queue', icon: Users, label: 'Antrean' },
         { path: '/patient/records', icon: FileText, label: 'Rekam Medis' },
         { path: '/patient/prescriptions', icon: Pill, label: 'Resep' },
-        { path: '/patient/payments', icon: CreditCard, label: 'Pembayaran' }
+        { path: '/patient/payments', icon: CreditCard, label: 'Riwayat Pembayaran' },
+        { path: '/patient/payments/upload', icon: CreditCard, label: 'Bayar Tagihan' }
     ]
 
     const handleLogout = () => {

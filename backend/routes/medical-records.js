@@ -19,10 +19,19 @@ router.get('/', (req, res) => {
                 d.full_name as doctor_name,
                 d.specialization,
                 a.appointment_date,
-                a.appointment_time
+                a.appointment_time,
+                vs.blood_pressure_systolic,
+                vs.blood_pressure_diastolic,
+                vs.heart_rate,
+                vs.temperature,
+                vs.weight,
+                vs.height,
+                vs.blood_type,
+                vs.oxygen_saturation
             FROM medical_records mr
             LEFT JOIN doctors d ON mr.doctor_id = d.id
             LEFT JOIN appointments a ON mr.appointment_id = a.id
+            LEFT JOIN vital_signs vs ON mr.appointment_id = vs.appointment_id
             WHERE mr.patient_id = (SELECT id FROM patients WHERE user_id = ?)
             ORDER BY mr.created_at DESC
         `;
@@ -34,11 +43,18 @@ router.get('/', (req, res) => {
                 mr.*,
                 p_user.name as patient_name,
                 a.appointment_date,
-                a.appointment_time
+                a.appointment_time,
+                vs.blood_pressure_systolic,
+                vs.blood_pressure_diastolic,
+                vs.heart_rate,
+                vs.temperature,
+                vs.weight,
+                vs.height
             FROM medical_records mr
             LEFT JOIN patients p ON mr.patient_id = p.id
             LEFT JOIN users p_user ON p.user_id = p_user.id
             LEFT JOIN appointments a ON mr.appointment_id = a.id
+            LEFT JOIN vital_signs vs ON mr.appointment_id = vs.appointment_id
             WHERE mr.doctor_id = (SELECT id FROM doctors WHERE user_id = ?)
             ORDER BY mr.created_at DESC
         `;
@@ -83,12 +99,22 @@ router.get('/:id', (req, res) => {
             d.specialization,
             p_user.name as patient_name,
             a.appointment_date,
-            a.appointment_time
+            a.appointment_time,
+            vs.blood_pressure_systolic,
+            vs.blood_pressure_diastolic,
+            vs.heart_rate,
+            vs.temperature,
+            vs.weight,
+            vs.height,
+            vs.blood_type,
+            vs.oxygen_saturation,
+            vs.notes as vital_notes
         FROM medical_records mr
         LEFT JOIN doctors d ON mr.doctor_id = d.id
         LEFT JOIN patients p ON mr.patient_id = p.id
         LEFT JOIN users p_user ON p.user_id = p_user.id
         LEFT JOIN appointments a ON mr.appointment_id = a.id
+        LEFT JOIN vital_signs vs ON mr.appointment_id = vs.appointment_id
         WHERE mr.id = ?
     `;
 
@@ -126,7 +152,7 @@ router.get('/:id', (req, res) => {
 
 // POST /api/medical-records - Create new medical record (doctor only)
 router.post('/', authorizeRole('doctor'), (req, res) => {
-    const { patient_id, appointment_id, diagnosis, treatment, notes } = req.body;
+    const { patient_id, appointment_id, symptoms, diagnosis, treatment, notes } = req.body;
 
     if (!patient_id || !diagnosis) {
         return res.status(400).json({ error: 'Patient ID and diagnosis are required' });
@@ -140,11 +166,16 @@ router.post('/', authorizeRole('doctor'), (req, res) => {
         }
 
         const query = `
-            INSERT INTO medical_records (patient_id, doctor_id, appointment_id, diagnosis, treatment, notes, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())
+            INSERT INTO medical_records (patient_id, doctor_id, appointment_id, symptoms, diagnosis, treatment, notes, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
         `;
 
-        db.run(query, [patient_id, doctor.id, appointment_id, diagnosis, treatment, notes], function (err) {
+        // Use empty string if symptoms is not provided
+        const symptomsValue = symptoms || '';
+        const treatmentValue = treatment || '';
+        const notesValue = notes || '';
+
+        db.run(query, [patient_id, doctor.id, appointment_id, symptomsValue, diagnosis, treatmentValue, notesValue], function (err) {
             if (err) {
                 console.error('[Medical Records] Create error:', err);
                 return res.status(500).json({ error: 'Failed to create medical record' });
@@ -169,7 +200,7 @@ router.post('/', authorizeRole('doctor'), (req, res) => {
 // PUT /api/medical-records/:id - Update medical record (doctor only)
 router.put('/:id', authorizeRole('doctor'), (req, res) => {
     const { id } = req.params;
-    const { diagnosis, treatment, notes } = req.body;
+    const { symptoms, diagnosis, treatment, notes } = req.body;
 
     // Get doctor ID and verify ownership
     db.get('SELECT id FROM doctors WHERE user_id = ?', [req.user.id], (err, doctor) => {
@@ -189,11 +220,11 @@ router.put('/:id', authorizeRole('doctor'), (req, res) => {
 
             const query = `
                 UPDATE medical_records 
-                SET diagnosis = ?, treatment = ?, notes = ?, updated_at = NOW()
+                SET symptoms = ?, diagnosis = ?, treatment = ?, notes = ?, updated_at = NOW()
                 WHERE id = ?
             `;
 
-            db.run(query, [diagnosis, treatment, notes, id], function (err) {
+            db.run(query, [symptoms, diagnosis, treatment, notes, id], function (err) {
                 if (err) {
                     console.error('[Medical Records] Update error:', err);
                     return res.status(500).json({ error: 'Failed to update medical record' });

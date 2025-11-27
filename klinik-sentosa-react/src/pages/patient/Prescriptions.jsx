@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Pill, Calendar, User, FileText, DollarSign, CheckCircle, Clock, Package } from 'lucide-react'
+import { Pill, Calendar, User, FileText, DollarSign, CheckCircle, Clock, Package, AlertCircle, XCircle } from 'lucide-react'
 import ScrollReveal from '../../components/ScrollReveal'
 import Toast from '../../components/Toast'
 
@@ -15,7 +15,9 @@ export default function Prescriptions() {
 
     const fetchPrescriptions = async () => {
         try {
-            const response = await fetch('http://localhost:3000/api/prescriptions/my-prescriptions', {
+            // Changed endpoint from /my-prescriptions to / (root of prescriptions route)
+            // Backend automatically filters by patient role
+            const response = await fetch('http://localhost:3000/api/prescriptions', {
                 headers: { 'Authorization': `Bearer ${token}` }
             })
             if (response.ok) {
@@ -29,6 +31,32 @@ export default function Prescriptions() {
             setToast({ show: true, message: 'Terjadi kesalahan saat memuat resep', type: 'error' })
         } finally {
             setLoading(false)
+        }
+    }
+
+    const getStatusBadge = (status) => {
+        switch (status) {
+            case 'verified':
+                return (
+                    <div className="flex items-center gap-1 bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold">
+                        <CheckCircle className="w-3 h-3" />
+                        Terverifikasi
+                    </div>
+                )
+            case 'rejected':
+                return (
+                    <div className="flex items-center gap-1 bg-red-100 text-red-700 px-3 py-1 rounded-full text-xs font-bold">
+                        <XCircle className="w-3 h-3" />
+                        Ditolak
+                    </div>
+                )
+            default:
+                return (
+                    <div className="flex items-center gap-1 bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full text-xs font-bold">
+                        <Clock className="w-3 h-3" />
+                        Menunggu Verifikasi
+                    </div>
+                )
         }
     }
 
@@ -53,7 +81,7 @@ export default function Prescriptions() {
             <ScrollReveal>
                 <div className="bg-gradient-to-r from-purple-50 to-indigo-50 rounded-2xl p-6 border border-purple-100">
                     <h1 className="text-2xl font-bold text-gray-800 mb-2">Resep Obat Saya</h1>
-                    <p className="text-gray-600">Lihat riwayat resep obat dan status pembayaran Anda</p>
+                    <p className="text-gray-600">Lihat riwayat resep obat dan status verifikasi dari apoteker</p>
                 </div>
             </ScrollReveal>
 
@@ -88,17 +116,26 @@ export default function Prescriptions() {
                                                 </div>
                                             </div>
                                         </div>
-                                        <div className={`px-3 py-1 rounded-full text-xs font-bold ${prescription.payment_status === 'paid'
-                                                ? 'bg-green-400 text-green-900'
-                                                : 'bg-yellow-400 text-yellow-900'
-                                            }`}>
-                                            {prescription.payment_status === 'paid' ? '✓ Lunas' : '○ Belum Bayar'}
+                                        <div className="flex flex-col items-end gap-2">
+                                            {getStatusBadge(prescription.status)}
+                                            {/* Payment status badge if needed later */}
                                         </div>
                                     </div>
                                 </div>
 
                                 {/* Body */}
                                 <div className="p-6">
+                                    {/* Rejection Reason */}
+                                    {prescription.status === 'rejected' && prescription.rejection_reason && (
+                                        <div className="mb-6 bg-red-50 p-4 rounded-xl border border-red-100 flex items-start gap-3">
+                                            <AlertCircle className="w-5 h-5 text-red-600 mt-0.5" />
+                                            <div>
+                                                <h4 className="font-bold text-red-800">Resep Ditolak</h4>
+                                                <p className="text-red-700 text-sm mt-1">{prescription.rejection_reason}</p>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     {/* Medications */}
                                     <div className="mb-6">
                                         <h4 className="font-bold text-gray-800 mb-3 flex items-center gap-2">
@@ -120,10 +157,10 @@ export default function Prescriptions() {
                                                                 <div>Durasi: <span className="font-medium text-gray-800">{med.duration}</span></div>
                                                             </div>
                                                         </div>
-                                                        {med.price && (
+                                                        {med.quantity && (
                                                             <div className="text-right">
-                                                                <div className="text-sm text-gray-500">Harga</div>
-                                                                <div className="font-bold text-gray-800">Rp {parseInt(med.price).toLocaleString()}</div>
+                                                                <div className="text-sm text-gray-500">Qty</div>
+                                                                <div className="font-bold text-gray-800">{med.quantity}</div>
                                                             </div>
                                                         )}
                                                     </div>
@@ -145,27 +182,27 @@ export default function Prescriptions() {
                                     {/* Footer Actions */}
                                     <div className="flex items-center justify-between pt-4 border-t border-gray-100">
                                         <div className="flex items-center gap-2">
-                                            {prescription.total_price ? (
+                                            {prescription.status === 'verified' ? (
                                                 <>
                                                     <DollarSign className="w-5 h-5 text-gray-500" />
                                                     <div>
-                                                        <div className="text-xs text-gray-500">Total Biaya</div>
-                                                        <div className="font-bold text-lg text-gray-800">Rp {parseInt(prescription.total_price).toLocaleString()}</div>
+                                                        <div className="text-xs text-gray-500">Total Biaya Obat</div>
+                                                        <div className="font-bold text-lg text-gray-800">Rp {parseInt(prescription.total_price || 0).toLocaleString('id-ID')}</div>
                                                     </div>
                                                 </>
                                             ) : (
-                                                <span className="text-sm text-gray-500">Harga belum ditentukan</span>
+                                                <span className="text-sm text-gray-500 italic">
+                                                    {prescription.status === 'rejected' ? 'Dibatalkan' : 'Menunggu perhitungan biaya...'}
+                                                </span>
                                             )}
                                         </div>
-                                        {prescription.payment_status === 'pending' && (
-                                            <button
-                                                onClick={() => setToast({ show: true, message: 'Fitur pembayaran online akan segera tersedia! Silakan bayar di kasir untuk saat ini.', type: 'info' })}
-                                                className="px-6 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold rounded-xl hover:shadow-lg transition-all flex items-center gap-2"
-                                            >
-                                                <DollarSign className="w-5 h-5" />
+
+                                        {/* Payment Button Placeholder - can be enabled later */}
+                                        {/* {prescription.status === 'verified' && (
+                                            <button className="px-6 py-2 bg-purple-600 text-white rounded-xl hover:bg-purple-700 font-semibold text-sm">
                                                 Bayar Sekarang
                                             </button>
-                                        )}
+                                        )} */}
                                     </div>
                                 </div>
                             </div>

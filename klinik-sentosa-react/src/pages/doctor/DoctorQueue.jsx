@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
-import { Users, Phone, Clock, CheckCircle, AlertCircle, User, UserX, ChevronRight, CheckCircle2 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Users, Phone, Clock, CheckCircle, AlertCircle, User, UserX, ChevronRight, CheckCircle2, Stethoscope } from 'lucide-react'
 import ScrollReveal from '../../components/ScrollReveal'
 import Toast from '../../components/Toast'
 
 export default function DoctorQueue() {
+    const navigate = useNavigate()
     const [queueData, setQueueData] = useState({
         currentServing: null,
         nextInLine: null,
@@ -239,6 +241,25 @@ export default function DoctorQueue() {
                                     </div>
                                     <div className="flex items-center gap-3">
                                         {getStatusBadge(patient.queue_status)}
+
+                                        {patient.queue_status === 'called' && (
+                                            <button
+                                                onClick={() => navigate('/doctor/examination', {
+                                                    state: {
+                                                        appointment: patient,
+                                                        patient: {
+                                                            patient_id: patient.patient_id,
+                                                            patient_name: patient.patient_name
+                                                        }
+                                                    }
+                                                })}
+                                                className="px-3 py-2 bg-primary-600 text-white rounded-lg text-sm font-semibold hover:bg-primary-700 transition-colors flex items-center gap-1"
+                                            >
+                                                <Stethoscope className="w-4 h-4" />
+                                                Periksa
+                                            </button>
+                                        )}
+
                                         {patient.queue_status === 'waiting' && (
                                             <button
                                                 onClick={() => handleSkipPatient(patient.queue_id, patient.queue_number)}

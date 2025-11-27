@@ -252,6 +252,40 @@ export default function PatientRegistration() {
                                 </select>
                             </div>
 
+                            <div className="group">
+                                <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
+                                    <CreditCard className="w-4 h-4 text-cyan-500" />
+                                    Tipe Pasien
+                                </label>
+                                <select
+                                    name="patient_type"
+                                    className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:ring-4 focus:ring-cyan-100 focus:border-cyan-500 outline-none transition-all group-hover:border-cyan-300"
+                                    value={formData.patient_type || 'mandiri'}
+                                    onChange={handleChange}
+                                >
+                                    <option value="mandiri">💰 Mandiri (Umum)</option>
+                                    <option value="bpjs">🏥 BPJS Kesehatan</option>
+                                </select>
+                            </div>
+
+                            {formData.patient_type === 'bpjs' && (
+                                <div className="group">
+                                    <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
+                                        <CreditCard className="w-4 h-4 text-green-500" />
+                                        Nomor BPJS
+                                    </label>
+                                    <input
+                                        type="text"
+                                        name="bpjs_number"
+                                        required
+                                        className="w-full px-4 py-3 border-2 border-green-200 rounded-xl focus:ring-4 focus:ring-green-100 focus:border-green-500 outline-none transition-all group-hover:border-green-300 bg-green-50"
+                                        value={formData.bpjs_number || ''}
+                                        onChange={handleChange}
+                                        placeholder="Masukkan Nomor BPJS"
+                                    />
+                                </div>
+                            )}
+
                             <div className="md:col-span-2 group">
                                 <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
                                     <MapPin className="w-4 h-4 text-cyan-500" />

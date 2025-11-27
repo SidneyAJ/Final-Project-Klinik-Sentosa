@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom'
 import {
     LayoutDashboard, Users, UserPlus, CreditCard, BarChart, ShieldAlert,
-    LogOut, Menu, X, User, ChevronRight, Building2, Settings
+    LogOut, Menu, X, User, ChevronRight, Building2, Settings, Banknote, CheckCircle2
 } from 'lucide-react'
 import NotificationDropdown from '../components/NotificationDropdown'
 
@@ -20,14 +20,33 @@ export default function AdminLayout() {
         }
     }
 
-    const menuItems = [
-        { path: '/admin', icon: LayoutDashboard, label: 'Dashboard' },
-        { path: '/admin/users', icon: Users, label: 'Manajemen Pengguna' },
-        { path: '/admin/patients', icon: UserPlus, label: 'Registrasi Pasien' },
-        { path: '/admin/payments', icon: CreditCard, label: 'Kasir & Pembayaran' },
-        { path: '/admin/reports', icon: BarChart, label: 'Laporan' },
-        { path: '/admin/logs', icon: ShieldAlert, label: 'Audit Logs' },
-    ]
+    // Redirect non-IT admins to patients page if accessing dashboard
+    useEffect(() => {
+        if (user.email !== 'admin@email.com' && location.pathname === '/admin') {
+            navigate('/admin/patients', { replace: true })
+        }
+    }, [user.email, location.pathname, navigate])
+
+    // Define menu items based on user email
+    let menuItems = []
+
+    if (user.email === 'admin@email.com') {
+        // IT Administrator - Full Access (System Management Only)
+        menuItems = [
+            { path: '/admin', icon: LayoutDashboard, label: 'Dashboard' },
+            { path: '/admin/users', icon: Users, label: 'Manajemen Pengguna' },
+            { path: '/admin/logs', icon: ShieldAlert, label: 'Audit Logs' },
+        ]
+    } else {
+        // All other admins (Rafael & newly added admins) - Limited Access
+        // Receptionist/Cashier duties only
+        menuItems = [
+            { path: '/admin/patients', icon: UserPlus, label: 'Registrasi Pasien' },
+            { path: '/admin/payments', icon: CreditCard, label: 'Riwayat Pembayaran' },
+            { path: '/admin/payments/create', icon: Banknote, label: 'Buat Tagihan' },
+            { path: '/admin/payments/verify', icon: CheckCircle2, label: 'Verifikasi Transfer' },
+        ]
+    }
 
     return (
         <div className="min-h-screen bg-slate-50 flex">

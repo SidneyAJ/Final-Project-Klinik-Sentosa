@@ -149,4 +149,103 @@ router.put('/:id/status', (req, res) => {
     });
 });
 
+// PUT /api/prescriptions/:id/update - Update prescription medications (doctor only)
+router.put('/:id/update', authorizeRole('doctor'), (req, res) => {
+    const recordId = req.params.id; // This is medical record ID
+    const { appointment_id, medications } = req.body;
+
+    // Allow empty medications (to clear prescription)
+    // if (!medications || medications.length === 0) {
+    //     return res.status(400).json({ error: 'Medications are required' });
+    // }
+
+    // Get doctor ID from user
+    db.get('SELECT id FROM doctors WHERE user_id = ?', [req.user.id], (err, doctor) => {
+        if (err || !doctor) {
+            console.error('[Prescriptions] Doctor not found:', err);
+            return res.status(500).json({ error: 'Doctor profile not found' });
+        }
+
+        // Check if prescription exists for this appointment
+        db.get('SELECT id FROM prescriptions WHERE appointment_id = ? AND doctor_id = ?',
+            [appointment_id, doctor.id], (err, prescription) => {
+
+                if (err) {
+                    console.error('[Prescriptions] Query error:', err);
+                    return res.status(500).json({ error: 'Database error' });
+                }
+
+                if (prescription) {
+                    // UPDATE existing prescription
+                    const updateQuery = `UPDATE prescriptions SET medications = ?, updated_at = NOW() WHERE id = ?`;
+                    db.run(updateQuery, [JSON.stringify(medications), prescription.id], function (err) {
+                        if (err) {
+                            console.error('[Prescriptions] Update error:', err);
+                            return res.status(500).json({ error: 'Failed to update prescription' });
+                        }
+
+                        // Create notification for patient
+                        db.get('SELECT patient_id FROM prescriptions WHERE id = ?', [prescription.id], (err, result) => {
+                            if (!err && result) {
+                                db.get('SELECT user_id FROM patients WHERE id = ?', [result.patient_id], (err, patient) => {
+                                    if (!err && patient) {
+                                        const notifQuery = `
+                                            INSERT INTO notifications (user_id, title, message, type, created_at)
+                                            VALUES (?, ?, ?, ?, datetime('now'))
+                                        `;
+                                        db.run(notifQuery, [
+                                            patient.user_id,
+                                            'Resep Obat Diperbarui',
+                                            'Resep obat Anda telah diperbarui oleh dokter.',
+                                            'success'
+                                        ]);
+                                    }
+                                });
+                            }
+                        });
+
+                        res.json({ message: 'Prescription updated successfully' });
+                    });
+                } else {
+                    // CREATE new prescription - get patient_id from appointment
+                    db.get('SELECT patient_id FROM appointments WHERE id = ?', [appointment_id], (err, appointment) => {
+                        if (err || !appointment) {
+                            return res.status(500).json({ error: 'Appointment not found' });
+                        }
+
+                        const createQuery = `
+                        INSERT INTO prescriptions (patient_id, doctor_id, appointment_id, medications, status, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, 'pending', NOW(), NOW())
+                    `;
+
+                        db.run(createQuery, [appointment.patient_id, doctor.id, appointment_id, JSON.stringify(medications)], function (err) {
+                            if (err) {
+                                console.error('[Prescriptions] Create error:', err);
+                                return res.status(500).json({ error: 'Failed to create prescription' });
+                            }
+
+                            // Create notification for patient
+                            db.get('SELECT user_id FROM patients WHERE id = ?', [appointment.patient_id], (err, patient) => {
+                                if (!err && patient) {
+                                    const notifQuery = `
+                                        INSERT INTO notifications (user_id, title, message, type, created_at)
+                                        VALUES (?, ?, ?, ?, datetime('now'))
+                                    `;
+                                    db.run(notifQuery, [
+                                        patient.user_id,
+                                        'Resep Obat Baru',
+                                        'Anda mendapat resep obat baru dari dokter.',
+                                        'success'
+                                    ]);
+                                }
+                            });
+
+                            res.json({ message: 'Prescription created successfully' });
+                        });
+                    });
+                }
+            });
+    });
+});
+
 module.exports = router;

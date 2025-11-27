@@ -1,34 +1,81 @@
 # Dependencies
 node_modules/
-.pnp
-.pnp.js
+package-lock.json
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# Testing
-coverage/
-
-# Production
-build/
+# Production build
 dist/
+build/
+*.local
 
-# Misc
-.DS_Store
+# Environment variables
 .env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
 
-# Logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-*.log
+# Database
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
 
-# Editor directories and files
-.idea
-.vscode
-*.suo
-*.ntvs
-*.njsproj
-*.sln
-*.sw?
+# Logs
+logs/
+*.log
+server.log
+login_debug.log
+error.log
+backend_error.log
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# IDE / Editor specific
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# Testing
+coverage/
+.nyc_output/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# uploads
+uploads/
+payment-proofs/
+prescription-proofs/
+
+# Cache
+.cache/
+.parcel-cache/
+.eslintcache
+
+# Misc
+.sass-cache/
+connect.lock
+typings/
+.angular/
